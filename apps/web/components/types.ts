@@ -141,4 +141,8 @@ export type StrategyRecord = {
   summary: string;
   equityCurve: EquityPoint[];
   pnlCurve: Array<{ date: string; value: number }>;
+  deployment?: {
+    pnl: number;
+    pnlCurve: Array<{ date: string; value: number }>;
+  };
 };

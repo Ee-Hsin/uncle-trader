@@ -21,6 +21,7 @@ test("a deployed backtest becomes a saved strategy record", () => {
   assert.equal(record.status, "active");
   assert.equal(record.pnl, backtestResponseFixture.results[0].metrics.total_pnl);
   assert.equal(record.equityCurve.length, backtestResponseFixture.results[0].equity_curve.length);
+  assert.deepEqual(record.deployment, { pnl: 0, pnlCurve: [] });
 });
 
 test("saved strategies are kept across reloads and replace older copies", () => {
@@ -40,4 +41,23 @@ test("saved strategies are kept across reloads and replace older copies", () => 
   assert.equal(loadSavedStrategies(storage)[0].name, record.name);
   assert.ok(values.has(SAVED_STRATEGIES_KEY));
   assert.deepEqual(mergeSavedStrategies(updated, [{ ...record, name: "Default name" }]), updated);
+});
+
+test("the obsolete Tesla Three-Day Dip sidebar entry is removed once", () => {
+  assert.equal(backtestResponseFixture.status, "complete");
+  if (backtestResponseFixture.status !== "complete") return;
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+  };
+  const record = strategyRecordFromDeployment(backtestRequestFixture, backtestResponseFixture);
+  const oldTesla = { ...record, id: "tesla-three-day-dip", name: "Tesla Three-Day Dip" };
+  const otherTesla = { ...record, id: "tesla-three-day-decline", name: "Tesla Three-Day Decline Rebound" };
+  storage.setItem(SAVED_STRATEGIES_KEY, JSON.stringify([oldTesla, otherTesla]));
+
+  assert.deepEqual(loadSavedStrategies(storage).map((strategy) => strategy.name), [otherTesla.name]);
+
+  storeSavedStrategies(storage, [oldTesla, otherTesla]);
+  assert.equal(loadSavedStrategies(storage).length, 2);
 });

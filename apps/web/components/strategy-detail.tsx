@@ -26,6 +26,7 @@ export function StrategyDetail({ strategy }: { strategy: StrategyRecord }) {
   const sidebar = useStrategySidebar(true);
   const displayStrategy = backendStrategy ?? strategy;
   const tickerBacktest = backtest?.results.find((result) => result.ticker === displayStrategy.ticker) ?? backtest?.results[0];
+  const deployment = displayStrategy.deployment;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -95,21 +96,49 @@ export function StrategyDetail({ strategy }: { strategy: StrategyRecord }) {
             <span>{displayStrategy.summary}</span>
           </header>
 
-          <section className="savedStrategyMetrics" aria-label="Strategy performance">
-            <Metric label="Total return" value={formatSignedPercent(displayStrategy.returnPercent)} tone={metricTone(displayStrategy.returnPercent)} />
-            <Metric label="Total P&L" value={formatSignedMoney(displayStrategy.pnl)} tone={metricTone(displayStrategy.pnl)} />
-            <Metric label="Last run" value={displayStrategy.lastRun} />
+          <section className="savedPerformanceSection" aria-labelledby="deployed-pnl-title">
+            <header>
+              <p>Since deployment</p>
+              <h2 id="deployed-pnl-title">Deployed P&amp;L</h2>
+            </header>
+            <article className="savedStrategyCard deployedPerformanceCard">
+              <header>
+                <span>Deployed P&amp;L</span>
+                <strong>{deployment ? formatSignedMoney(deployment.pnl) : "—"}</strong>
+              </header>
+              {deployment?.pnlCurve.length ? (
+                <LineChart points={deployment.pnlCurve} kind="pnl" />
+              ) : (
+                <p className="savedChartEmpty">
+                  {displayStrategy.status === "active"
+                    ? "No deployed P&L has been recorded yet."
+                    : "Deploy this strategy to track its future P&L."}
+                </p>
+              )}
+            </article>
           </section>
 
-          <section className="savedStrategyCharts" aria-label="Strategy graphs">
-            <article className="savedStrategyCard">
-              <header><span>P&amp;L over time</span><strong>{formatSignedMoney(displayStrategy.pnl)}</strong></header>
-              {loading ? <GraphLoading /> : <LineChart points={displayStrategy.pnlCurve} kind="pnl" />}
-            </article>
-            <article className="savedStrategyCard">
-              <header><span>Account value</span><strong>{formatMoney(displayStrategy.equityCurve.at(-1)?.equity ?? 0)}</strong></header>
-              {loading ? <GraphLoading /> : <LineChart points={displayStrategy.equityCurve} kind="equity" />}
-            </article>
+          <section className="savedStrategyMetrics" aria-label="Backtest summary">
+            <Metric label="Backtest return" value={formatSignedPercent(displayStrategy.returnPercent)} tone={metricTone(displayStrategy.returnPercent)} />
+            <Metric label="Backtest P&L" value={formatSignedMoney(displayStrategy.pnl)} tone={metricTone(displayStrategy.pnl)} />
+            <Metric label="Last backtest" value={displayStrategy.lastRun} />
+          </section>
+
+          <section className="savedPerformanceSection" aria-labelledby="backtest-pnl-title">
+            <header>
+              <p>Historical simulation</p>
+              <h2 id="backtest-pnl-title">Backtest P&amp;L</h2>
+            </header>
+            <div className="savedStrategyCharts" aria-label="Backtest graphs">
+              <article className="savedStrategyCard">
+                <header><span>Backtest P&amp;L</span><strong>{formatSignedMoney(displayStrategy.pnl)}</strong></header>
+                {loading ? <GraphLoading /> : <LineChart points={displayStrategy.pnlCurve} kind="pnl" />}
+              </article>
+              <article className="savedStrategyCard">
+                <header><span>Backtest account equity</span><strong>{formatMoney(displayStrategy.equityCurve.at(-1)?.equity ?? 0)}</strong></header>
+                {loading ? <GraphLoading /> : <LineChart points={displayStrategy.equityCurve} kind="equity" />}
+              </article>
+            </div>
           </section>
 
           {backtest ? (

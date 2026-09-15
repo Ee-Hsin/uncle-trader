@@ -162,6 +162,8 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
   const hasDraft = view.hasDraft ?? view.stage !== "empty";
+  const hasConversation = view.messages.length > 1 || Boolean(view.chatLoading) || Boolean(view.chatError);
+  const showConversation = hasDraft || hasConversation;
   const sidebar = useStrategySidebar(view.layout !== "workflow");
   const [inspectorOpen, setInspectorOpen] = useState(hasDraft);
   const draftHasOpened = useRef(hasDraft);
@@ -243,11 +245,11 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
             </button>
           ) : <span className="toolbarSpacer" aria-hidden="true" />}
         </header>
-        <div className={hasDraft ? "conversationWorkspace" : "chatHomeMain"}>
-          {!hasDraft ? (
+        <div className={showConversation ? "conversationWorkspace" : "chatHomeMain"}>
+          {!showConversation ? (
             <header className="chatHomeHeader">
-              <h1>What would you like to test?</h1>
-              <p>Describe a trading idea and Uncle will build it.</p>
+              <h1>Describe a trading idea</h1>
+              <p>Uncle will build it.</p>
             </header>
           ) : null}
           <StrategyChat
@@ -261,7 +263,7 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
             backtestLoading={isLoading}
             hasResults={Boolean(view.results)}
             deploy={deployView}
-            suggestions={!hasDraft ? [
+            suggestions={!showConversation ? [
               {
                 label: "Buy Tesla after three down days",
                 value: "Buy Tesla when it falls for three trading days in a row, then hold it for five trading days.",
@@ -323,10 +325,19 @@ export function StrategySidebar({
   return (
     <aside id="strategy-history" className="strategySidebar" aria-label="Past trading strategies">
       <div className="sidebarBrand">
-        <span className="sidebarIdentity">
+        <Link
+          className="sidebarIdentity"
+          href={newStrategyHref ?? "/"}
+          aria-label="Start a new strategy"
+          onClick={(event) => {
+            if (!onNewStrategy) return;
+            event.preventDefault();
+            onNewStrategy();
+          }}
+        >
           <img className="sidebarLogo" src="/uncle-trading-icon.png" alt="" width="30" height="30" />
           <span className="sidebarTitle">Uncle Trading</span>
-        </span>
+        </Link>
         <button type="button" className="toolbarButton" aria-label="Hide strategy history" onClick={onClose}>
           <PanelIcon side="left" />
         </button>
@@ -407,10 +418,15 @@ export function StrategyChat({
   onRunBacktest?: () => void;
   onDeploy?: () => void;
 }) {
+  const composerInput = useRef<HTMLTextAreaElement>(null);
   const chatClassName = [
     compact ? "chatPanel drawerChat" : "chatPanel strategyChat",
     loading ? "isChatLoading" : "",
   ].filter(Boolean).join(" ");
+
+  useEffect(() => {
+    resizeComposerInput(composerInput.current);
+  }, [idea]);
 
   return (
     <section className={chatClassName} aria-label="Strategy conversation">
@@ -441,12 +457,16 @@ export function StrategyChat({
       >
         <textarea
           id="idea"
+          ref={composerInput}
           rows={1}
           aria-label="Message Uncle Trading"
           maxLength={4_000}
           value={idea}
           readOnly={!onIdeaChange}
-          onChange={(event) => onIdeaChange?.(event.target.value)}
+          onChange={(event) => {
+            resizeComposerInput(event.currentTarget);
+            onIdeaChange?.(event.target.value);
+          }}
           placeholder="Describe a daily stock or ETF strategy."
         />
         <div className="composerFooter">
@@ -489,6 +509,15 @@ export function StrategyChat({
       {deploy?.state === "error" ? <p className="deploymentError" role="alert">{deploy.message}</p> : null}
     </section>
   );
+}
+
+function resizeComposerInput(input: HTMLTextAreaElement | null) {
+  if (!input) return;
+  input.style.height = "0px";
+  const contentHeight = input.scrollHeight;
+  const nextHeight = Math.min(Math.max(contentHeight, 32), 180);
+  input.style.height = `${nextHeight}px`;
+  input.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
 }
 
 export function StrategyDraftPanel({

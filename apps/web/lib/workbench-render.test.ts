@@ -25,10 +25,12 @@ test("the empty state uses Sophia's new strategy workspace", () => {
     }),
   );
 
-  assert.match(html, /What would you like to test\?/);
+  assert.match(html, /Describe a trading idea/);
+  assert.match(html, /Uncle will build it\./);
   assert.match(html, /Past strategies/);
   assert.match(html, /New strategy/);
   assert.match(html, /uncle-trading-icon\.png/);
+  assert.match(html, /aria-label="Start a new strategy"/);
   assert.match(html, /chatComposer hasSuggestions/);
   assert.match(html, /rows="1"/);
   assert.match(html, /Buy Tesla after three down days/);
@@ -88,6 +90,29 @@ test("chat loading appears as an assistant response", () => {
   assert.doesNotMatch(html, /Sending…/);
 });
 
+test("a conversation without a strategy stays in the chat layout", () => {
+  const html = renderToStaticMarkup(
+    createElement(StrategyWorkbench, {
+      stage: "missing",
+      idea: "",
+      messages: [
+        messages[0],
+        { id: "user-1", role: "user" as const, text: "What data sources do you have?" },
+        { id: "assistant-1", role: "assistant" as const, text: "I can explain the available sources." },
+      ],
+      hasDraft: false,
+      onIdeaChange: () => undefined,
+      onSubmitIdea: () => undefined,
+    }),
+  );
+
+  assert.match(html, /class="conversationWorkspace"/);
+  assert.match(html, /What data sources do you have\?/);
+  assert.match(html, /I can explain the available sources\./);
+  assert.doesNotMatch(html, /Describe a trading idea/);
+  assert.doesNotMatch(html, /Strategy details|Run backtest/);
+});
+
 test("backtest loading uses the compact chat design", () => {
   const html = renderToStaticMarkup(
     createElement(StrategyWorkbench, {
@@ -136,8 +161,12 @@ test("saved strategies use the redesigned backtest page", () => {
   assert.match(html, /savedStrategyShell hasLeftSidebar/);
   assert.equal((html.match(/aria-label="Hide strategy history"/g) ?? []).length, 1);
   assert.doesNotMatch(html, /aria-label="Show strategy history"/);
-  assert.match(html, /P&amp;L over time/);
-  assert.match(html, /Account value/);
+  assert.match(html, /Deployed P&amp;L/);
+  assert.match(html, /Deploy this strategy to track its future P&amp;L\./);
+  assert.match(html, /Backtest P&amp;L/);
+  assert.match(html, /Backtest account equity/);
+  assert.ok(html.indexOf("Deployed P&amp;L") < html.indexOf("Backtest return"));
+  assert.match(html, /aria-label="Start a new strategy"/);
   assert.doesNotMatch(html, /Paper strategy|Preview data/);
 });
 

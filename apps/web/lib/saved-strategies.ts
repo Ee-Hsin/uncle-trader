@@ -2,6 +2,8 @@ import type { StrategyRecord } from "../components/types";
 import type { BacktestRequest, BacktestSuccessResponse } from "./contracts";
 
 export const SAVED_STRATEGIES_KEY = "uncle-trading.saved-strategies.v1";
+const SIDEBAR_CLEANUP_KEY = "uncle-trading.sidebar-cleanup.v1";
+const REMOVED_STRATEGY_NAME = "tesla three-day dip";
 
 type StrategyStorage = Pick<Storage, "getItem" | "setItem">;
 
@@ -27,6 +29,10 @@ export function strategyRecordFromDeployment(
       date: point.date,
       value: point.equity - startingEquity,
     })),
+    deployment: {
+      pnl: 0,
+      pnlCurve: [],
+    },
   };
 }
 
@@ -50,7 +56,18 @@ export function upsertSavedStrategy(
 export function loadSavedStrategies(storage: StrategyStorage): StrategyRecord[] {
   try {
     const value: unknown = JSON.parse(storage.getItem(SAVED_STRATEGIES_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter(isStrategyRecord) : [];
+    const strategies = Array.isArray(value) ? value.filter(isStrategyRecord) : [];
+    if (storage.getItem(SIDEBAR_CLEANUP_KEY) === "complete") return strategies;
+
+    const removeIndex = strategies.findIndex(
+      (strategy) => strategy.name.trim().toLowerCase() === REMOVED_STRATEGY_NAME,
+    );
+    const cleaned = removeIndex < 0
+      ? strategies
+      : strategies.filter((_, index) => index !== removeIndex);
+    storage.setItem(SAVED_STRATEGIES_KEY, JSON.stringify(cleaned));
+    storage.setItem(SIDEBAR_CLEANUP_KEY, "complete");
+    return cleaned;
   } catch {
     return [];
   }
@@ -76,7 +93,16 @@ function isStrategyRecord(value: unknown): value is StrategyRecord {
     && typeof record.summary === "string"
     && ["paper", "draft", "active"].includes(record.status ?? "")
     && Array.isArray(record.equityCurve)
-    && Array.isArray(record.pnlCurve);
+    && Array.isArray(record.pnlCurve)
+    && isDeploymentPerformance(record.deployment);
+}
+
+function isDeploymentPerformance(value: StrategyRecord["deployment"]): boolean {
+  if (value === undefined) return true;
+  return typeof value === "object"
+    && value !== null
+    && typeof value.pnl === "number"
+    && Array.isArray(value.pnlCurve);
 }
 
 function formatDate(value: string): string {
