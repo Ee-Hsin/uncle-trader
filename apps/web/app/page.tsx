@@ -296,7 +296,6 @@ export default function Home() {
   return (
     <main>
       <StrategyWorkbench
-        layout="workflow"
         stage={stage}
         messages={messages.map((message, index) => ({ id: `${message.role}-${index}`, role: message.role, text: message.content }))}
         idea={idea}
