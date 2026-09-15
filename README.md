@@ -2,7 +2,7 @@
 
 Uncle Trading is a three-hour hackathon MVP. A nontechnical user describes a trading idea, confirms a structured strategy, runs historical paper-money backtests, and can mark a tested strategy active in a simulated deployment.
 
-The repository is still a starter. The current backtest and deploy routes return HTTP 501 placeholders until their workstreams implement them.
+The application includes the conversation agent, confirmed-strategy workflow, historical backtest API, and simulated deployment API.
 
 ## Start here
 
@@ -28,10 +28,20 @@ See [AGENTS.md](AGENTS.md) for the complete path restrictions.
 
 Requirements: Node.js 20.9 or newer and Python 3.11 or newer.
 
-Web:
+Create the shared local configuration and add both OpenAI API keys:
 
 ```sh
-cp apps/web/.env.example apps/web/.env.local
+cp .env.example .env
+chmod 600 .env
+```
+
+The web app uses `gpt-5.6-luna` by default. The backend uses `gpt-5.6-terra` by default. Both API keys and model names stay server-side; the browser reads only `NEXT_PUBLIC_API_BASE_URL`.
+
+Both configured models must support the Responses API and strict Structured Outputs. The web call sends at most 20 recent messages, 32,000 message characters, and 8,000 output tokens. The backend sends at most 40,000 strategy characters and 16,000 output tokens. Both calls disable silent context truncation, use a 30-second timeout, and retry transient failures at most twice. These limits are well below the context windows of the default Luna and Terra models.
+
+Install and start the web app:
+
+```sh
 npm install
 npm run dev:web
 ```
@@ -44,16 +54,17 @@ API:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r apps/api/requirements.txt
-cp apps/api/.env.example apps/api/.env
-set -a
-source apps/api/.env
-set +a
 uvicorn app.main:app --app-dir apps/api --reload
 ```
 
-Until William adds automatic `.env` loading, source `apps/api/.env` into each new terminal before starting Uvicorn. Open `http://localhost:8000/health` to check the service.
+The API loads the shared root `.env` without replacing variables already present in the shell. Open `http://localhost:8000/health` to check the service.
 
-The root `.env.example` lists all variables for reference. AI keys and model names stay server-side. The web app reads only `NEXT_PUBLIC_API_BASE_URL` in browser code.
+To run the API with Docker instead, use:
+
+```sh
+cd apps/api
+docker compose --env-file ../../.env up --build
+```
 
 ## Hackathon start
 
@@ -65,4 +76,3 @@ The root `.env.example` lists all variables for reference. AI keys and model nam
 6. Replace fixtures with the live path, then stop adding features and test the full flow.
 
 Generated strategy code must contain exactly one import-free `Strategy` class with `required_data()` and `generate_signals(data)`. Do not run model-generated code without the backend's checker and time-limited isolation.
-

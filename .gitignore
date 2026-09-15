@@ -4,7 +4,9 @@ dist/
 .env
 .env.local
 .venv/
+.pytest_cache/
 __pycache__/
 *.py[cod]
+*.db
 *.tsbuildinfo
 .DS_Store

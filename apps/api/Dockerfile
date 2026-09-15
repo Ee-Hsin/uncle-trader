@@ -5,11 +5,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY apps/api/requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+COPY apps/api/app ./app
+COPY prompts/strategy-codegen.md ./prompts/strategy-codegen.md
 
 EXPOSE 8000
 

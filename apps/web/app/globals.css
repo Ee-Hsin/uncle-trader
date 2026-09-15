@@ -22,12 +22,14 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
   outline: 3px solid #8bd3ff;
   outline-offset: 3px;
@@ -159,7 +161,7 @@ h3 {
 }
 
 .sidebarTitle {
-  color: #f4f7fb;
+  color: #fff;
   font-size: 1.05rem;
   font-weight: 600;
 }
@@ -199,7 +201,7 @@ h3 {
   gap: 10px;
   padding: 10px;
   border-radius: 7px;
-  color: #dce5ef;
+  color: #fff;
   text-decoration: none;
 }
 
@@ -275,7 +277,7 @@ h3 {
 .chatHomeHeader p:last-child {
   max-width: 560px;
   margin: 0 auto;
-  color: #929292;
+  color: #fff;
   line-height: 1.55;
 }
 
@@ -308,12 +310,12 @@ h3 {
   border: 1px solid #292929;
   border-radius: 999px;
   background: transparent;
-  color: #8e8e8e;
+  color: #fff;
   font-size: 0.78rem;
 }
 
 .chatSuggestions button:hover {
-  border-color: #477f6f;
+  border-color: #555;
   color: #fff;
 }
 
@@ -580,29 +582,6 @@ h3 {
   font-size: 0.84rem;
 }
 
-.graphLoading {
-  display: grid;
-  align-content: center;
-  gap: 14px;
-  height: 320px;
-  padding: 40px;
-  background: #050505;
-}
-
-.graphLoadingLine {
-  display: block;
-  width: 72%;
-  height: 8px;
-  border-radius: 999px;
-  background: #1d1d1d;
-  animation: graphShimmer 1.2s ease-in-out infinite alternate;
-}
-
-.graphLoadingLine.short {
-  width: 42%;
-  animation-delay: 120ms;
-}
-
 .drawerBackdrop {
   position: fixed;
   z-index: 10;
@@ -778,7 +757,8 @@ h3 {
 }
 
 textarea,
-input {
+input,
+select {
   width: 100%;
   border: 1px solid #34465b;
   border-radius: 8px;
@@ -793,7 +773,8 @@ textarea {
   font-weight: 400;
 }
 
-input {
+input,
+select {
   min-height: 42px;
   padding: 10px 11px;
 }
@@ -1102,16 +1083,6 @@ pre {
   }
 }
 
-@keyframes graphShimmer {
-  from {
-    opacity: 0.4;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
 @media (max-width: 900px) {
   .workbench,
   .actionRow,
@@ -1208,10 +1179,6 @@ pre {
   }
 
   .detailChart svg {
-    height: 240px;
-  }
-
-  .graphLoading {
     height: 240px;
   }
 

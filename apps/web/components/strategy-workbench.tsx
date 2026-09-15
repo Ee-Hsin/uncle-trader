@@ -64,7 +64,6 @@ const starterProps: StrategyWorkbenchProps = {
 
 export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const view = { ...starterProps, ...props };
-  const [ideaDraft, setIdeaDraft] = useState(view.idea);
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
   const ready = view.stage === "ready";
@@ -77,21 +76,21 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
             <p className="eyebrow">Uncle Trading</p>
             <span className="sidebarTitle">Workspace</span>
           </div>
-          <button type="button" className="newStrategyButton" onClick={() => setIdeaDraft("")}>
+          <button type="button" className="newStrategyButton" onClick={() => view.onIdeaChange?.("")}>
             <span aria-hidden="true">+</span> New strategy
           </button>
           <div className="sidebarSection">
             <p className="sidebarLabel">Past strategies</p>
             <nav aria-label="Saved trading strategies">
-              {strategies.map((strategy) => (
-                <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
-                  <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
-                  <span className="sidebarStrategyCopy">
-                    <strong>{strategy.name}</strong>
-                    <small>{strategy.ticker} · {strategy.lastRun}</small>
-                  </span>
-                </Link>
-              ))}
+          {strategies.map((strategy) => (
+            <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
+              <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
+              <span className="sidebarStrategyCopy">
+                <strong>{strategy.name}</strong>
+                <small>{strategy.ticker} · {strategy.lastRun}</small>
+              </span>
+            </Link>
+          ))}
             </nav>
           </div>
           <p className="sidebarNote">Historical results are paper-money simulations.</p>
@@ -104,15 +103,17 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
           </header>
           <StrategyChat
             messages={view.messages}
-            idea={ideaDraft}
+            idea={view.idea}
             stage={view.stage}
             illustrative={view.illustrative}
-            onIdeaChange={setIdeaDraft}
-            onContinue={() => undefined}
+            loading={view.chatLoading}
+            error={view.chatError}
+            onIdeaChange={view.onIdeaChange}
+            onSubmit={view.onSubmitIdea}
           />
           <div className="chatSuggestions" aria-label="Example strategy ideas">
-            <button type="button" onClick={() => setIdeaDraft("Buy an ETF when its 20-day moving average crosses above its 50-day moving average.")}>Moving average crossover</button>
-            <button type="button" onClick={() => setIdeaDraft("Buy a stock after three consecutive down days and hold it for five trading days.")}>Three-day pullback</button>
+            <button type="button" onClick={() => view.onIdeaChange?.("Buy an ETF when its 20-day moving average crosses above its 50-day moving average.")}>Moving average crossover</button>
+            <button type="button" onClick={() => view.onIdeaChange?.("Buy a stock after three consecutive down days and hold it for five trading days.")}>Three-day pullback</button>
           </div>
         </section>
       </section>
@@ -122,15 +123,42 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   return (
     <section className="workbench" aria-label="Strategy workflow">
       <div className="primaryColumn">
-        <StrategyChat messages={view.messages} idea={view.idea} stage={view.stage} illustrative={view.illustrative} />
+        <StrategyChat
+          messages={view.messages}
+          idea={view.idea}
+          stage={view.stage}
+          illustrative={view.illustrative}
+          loading={view.chatLoading}
+          error={view.chatError}
+          onIdeaChange={view.onIdeaChange}
+          onSubmit={view.onSubmitIdea}
+        />
         {isLoading ? <BacktestProgress /> : null}
-        {isFailure && view.error ? <FailurePanel title={view.error.title} message={view.error.message} /> : null}
+        {isFailure && view.error ? (
+          <FailurePanel title={view.error.title} message={view.error.message} onRetry={view.onRetryBacktest} />
+        ) : null}
         {view.results ? <BacktestResults results={view.results} /> : null}
       </div>
       <aside className="sideColumn" aria-label="Strategy review">
-        {view.draft ? <StrategyDraftPanel draft={view.draft} missingFields={view.missingFields ?? []} /> : <EmptyDraftPanel />}
-        <ConfirmationPanel ready={ready} loading={isLoading} />
-        <DeployPanel deploy={view.deploy ?? starterProps.deploy!} />
+        {view.draft ? (
+          <StrategyDraftPanel
+            draft={view.draft}
+            missingFields={view.missingFields ?? []}
+            onFieldChange={view.onFieldChange}
+          />
+        ) : (
+          <EmptyDraftPanel />
+        )}
+        <ConfirmationPanel
+          ready={ready}
+          loading={isLoading}
+          finalConfirmed={view.finalConfirmed ?? false}
+          hasProposals={view.hasProposals ?? false}
+          onAcceptProposals={view.onAcceptProposals}
+          onConfirm={view.onConfirm}
+          onRunBacktest={view.onRunBacktest}
+        />
+        <DeployPanel deploy={view.deploy ?? starterProps.deploy!} onDeploy={view.onDeploy} />
       </aside>
     </section>
   );
@@ -142,11 +170,15 @@ export function StrategyChat({
   stage,
   illustrative,
   onIdeaChange,
-  onContinue,
+  onSubmit,
+  loading = false,
+  error,
   compact = false,
 }: Pick<StrategyWorkbenchProps, "messages" | "idea" | "stage" | "illustrative"> & {
   onIdeaChange?: (value: string) => void;
-  onContinue?: () => void;
+  onSubmit?: () => void;
+  loading?: boolean;
+  error?: string;
   compact?: boolean;
 }) {
   return (
@@ -159,6 +191,7 @@ export function StrategyChat({
         <StatusBadge state={stage === "empty" ? "missing" : "confirmed"} label={stage === "empty" ? "Empty" : "In progress"} />
       </div>
       {illustrative ? <p className="notice">Illustrative preview data. No market service is connected here.</p> : null}
+      {error ? <p className="errorText" role="alert">{error}</p> : null}
       <div className="messageList" aria-label="Conversation messages">
         {messages.map((message) => (
           <article className={`message ${message.role}`} key={message.id}>
@@ -170,24 +203,42 @@ export function StrategyChat({
       <label htmlFor="idea" className="fieldLabel">
         Trading idea
       </label>
-      <textarea
-        id="idea"
-        value={idea}
-        readOnly={!onIdeaChange}
-        onChange={(event) => onIdeaChange?.(event.target.value)}
-        placeholder="Describe a daily stock or ETF strategy."
-      />
-      <div className="actionRow">
-        <span className="muted">{onIdeaChange ? "Add the idea in your own words." : "Preview state - no service connected."}</span>
-        <button type="button" disabled={onIdeaChange ? idea.trim().length === 0 : true} onClick={onContinue}>
-          Continue
-        </button>
-      </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit?.();
+        }}
+      >
+        <textarea
+          id="idea"
+          maxLength={4_000}
+          value={idea}
+          readOnly={!onIdeaChange}
+          onChange={(event) => onIdeaChange?.(event.target.value)}
+          placeholder="Describe a daily stock or ETF strategy."
+        />
+        <div className="actionRow">
+          <span className="muted">
+            {loading ? "Reviewing your idea…" : onIdeaChange ? "Add the idea in your own words." : "Preview state - no service connected."}
+          </span>
+          <button type="submit" disabled={!onSubmit || idea.trim().length === 0 || loading}>
+            {loading ? "Sending…" : "Send"}
+          </button>
+        </div>
+      </form>
     </section>
   );
 }
 
-export function StrategyDraftPanel({ draft, missingFields }: { draft: StrategyDraftView; missingFields: string[] }) {
+export function StrategyDraftPanel({
+  draft,
+  missingFields,
+  onFieldChange,
+}: {
+  draft: StrategyDraftView;
+  missingFields: string[];
+  onFieldChange?: (fieldId: string, value: string) => void;
+}) {
   return (
     <section className="surface" aria-labelledby="draft-title">
       <div className="sectionHeader">
@@ -200,7 +251,7 @@ export function StrategyDraftPanel({ draft, missingFields }: { draft: StrategyDr
       <p className="bodyCopy">{draft.thesis}</p>
       <div className="fieldGrid">
         {draft.fields.map((field) => (
-          <EditableStrategyField field={field} key={field.id} />
+          <EditableStrategyField field={field} onChange={onFieldChange} key={field.id} />
         ))}
       </div>
       <dl className="detailList">
@@ -221,7 +272,7 @@ export function StrategyDraftPanel({ draft, missingFields }: { draft: StrategyDr
         <div>
           <dt>Execution</dt>
           <dd>
-            {draft.execution.holdingPeriodDays} trading days - {draft.execution.allocationPercent}% allocation
+            {draft.execution.holdingPeriodDays ?? "Missing"} trading days - {draft.execution.allocationPercent ?? "Missing"}% allocation
           </dd>
         </div>
       </dl>
@@ -239,14 +290,42 @@ export function StrategyDraftPanel({ draft, missingFields }: { draft: StrategyDr
   );
 }
 
-export function EditableStrategyField({ field }: { field: EditableField }) {
+export function EditableStrategyField({
+  field,
+  onChange,
+}: {
+  field: EditableField;
+  onChange?: (fieldId: string, value: string) => void;
+}) {
   return (
     <label className="editableField">
       <span>
         {field.label}
         <StatusBadge state={field.state} label={field.state} />
       </span>
-      <input value={field.value} readOnly aria-describedby={field.helperText ? `${field.id}-help` : undefined} />
+      {field.input === "select" ? (
+        <select
+          value={field.value}
+          disabled={!onChange}
+          onChange={(event) => onChange?.(field.id, event.target.value)}
+          aria-describedby={field.helperText ? `${field.id}-help` : undefined}
+        >
+          <option value="">Select</option>
+          {field.options?.map((option) => (
+            <option value={option.value} key={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={field.input ?? "text"}
+          value={field.value}
+          readOnly={!onChange}
+          onChange={(event) => onChange?.(field.id, event.target.value)}
+          aria-describedby={field.helperText ? `${field.id}-help` : undefined}
+        />
+      )}
       {field.helperText ? (
         <small id={`${field.id}-help`} className="muted">
           {field.helperText}
@@ -256,15 +335,42 @@ export function EditableStrategyField({ field }: { field: EditableField }) {
   );
 }
 
-export function ConfirmationPanel({ ready, loading }: { ready: boolean; loading: boolean }) {
+export function ConfirmationPanel({
+  ready,
+  loading,
+  finalConfirmed,
+  hasProposals,
+  onAcceptProposals,
+  onConfirm,
+  onRunBacktest,
+}: {
+  ready: boolean;
+  loading: boolean;
+  finalConfirmed: boolean;
+  hasProposals: boolean;
+  onAcceptProposals?: () => void;
+  onConfirm?: () => void;
+  onRunBacktest?: () => void;
+}) {
   return (
     <section className="surface compactSurface" aria-labelledby="confirm-title">
       <p className="label">Confirmation</p>
       <h2 id="confirm-title">Final review</h2>
       <p className="bodyCopy">Backtesting stays disabled until every required contract field is confirmed by the user.</p>
-      <button type="button" disabled={!ready || loading} className="wideButton">
-        {loading ? "Backtest running" : "Run historical paper backtest"}
-      </button>
+      {hasProposals ? (
+        <button type="button" disabled={!onAcceptProposals || loading} className="secondaryButton wideButton" onClick={onAcceptProposals}>
+          Accept proposed values
+        </button>
+      ) : null}
+      {!finalConfirmed ? (
+        <button type="button" disabled={!ready || loading || !onConfirm} className="wideButton" onClick={onConfirm}>
+          Confirm final strategy
+        </button>
+      ) : (
+        <button type="button" disabled={loading || !onRunBacktest} className="wideButton" onClick={onRunBacktest}>
+          {loading ? "Backtest running" : "Run historical paper backtest"}
+        </button>
+      )}
     </section>
   );
 }
@@ -423,7 +529,7 @@ export function GeneratedCodeDrawer({ code }: { code: string }) {
   );
 }
 
-export function DeployPanel({ deploy }: { deploy: DeployView }) {
+export function DeployPanel({ deploy, onDeploy }: { deploy: DeployView; onDeploy?: () => void }) {
   return (
     <section className="surface compactSurface" aria-labelledby="deploy-title">
       <p className="label">Simulated deployment</p>
@@ -438,7 +544,12 @@ export function DeployPanel({ deploy }: { deploy: DeployView }) {
       ) : (
         <p className="bodyCopy">{deploy.helperText}</p>
       )}
-      <button type="button" disabled={deploy.state !== "idle" || deploy.disabled} className="wideButton">
+      <button
+        type="button"
+        disabled={!onDeploy || deploy.state !== "idle" || deploy.disabled}
+        className="wideButton"
+        onClick={onDeploy}
+      >
         {deploy.state === "loading" ? "Activating" : deploy.state === "active" ? "Simulated active" : "Activate simulation"}
       </button>
     </section>
@@ -459,13 +570,13 @@ function EmptyDraftPanel() {
   );
 }
 
-function FailurePanel({ title, message }: { title: string; message: string }) {
+function FailurePanel({ title, message, onRetry }: { title: string; message: string; onRetry?: () => void }) {
   return (
     <section className="surface failurePanel" aria-labelledby="failure-title">
       <p className="label">Needs attention</p>
       <h2 id="failure-title">{title}</h2>
       <p>{message}</p>
-      <button type="button">Retry backtest</button>
+      <button type="button" disabled={!onRetry} onClick={onRetry}>Retry backtest</button>
     </section>
   );
 }

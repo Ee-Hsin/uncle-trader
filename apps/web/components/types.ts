@@ -12,22 +12,24 @@ export type EditableField = {
   value: string;
   state: FieldState;
   helperText?: string;
+  input?: "text" | "number" | "date" | "select";
+  options?: Array<{ label: string; value: string }>;
 };
 
 export type StrategyDraftView = {
   name: string;
   thesis: string;
   targetTickers: string[];
-  direction: "long" | "short";
-  signalSource: "yahoo" | "open_meteo";
+  direction: "long" | "short" | null;
+  signalSource: "yahoo" | "open_meteo" | null;
   signalSymbol?: string;
   signalField: string;
   signalRule: string;
   parameters: Array<{ label: string; value: string }>;
   execution: {
     entryTiming: string;
-    holdingPeriodDays: number;
-    allocationPercent: number;
+    holdingPeriodDays: number | null;
+    allocationPercent: number | null;
     ignoreOverlappingSignals: boolean;
   };
   fields: EditableField[];
@@ -116,6 +118,18 @@ export type StrategyWorkbenchProps = {
     message: string;
   };
   illustrative?: boolean;
+  chatLoading?: boolean;
+  chatError?: string;
+  finalConfirmed?: boolean;
+  hasProposals?: boolean;
+  onIdeaChange?: (value: string) => void;
+  onSubmitIdea?: (value?: string) => void;
+  onFieldChange?: (fieldId: string, value: string) => void;
+  onAcceptProposals?: () => void;
+  onConfirm?: () => void;
+  onRunBacktest?: () => void;
+  onRetryBacktest?: () => void;
+  onDeploy?: () => void;
 };
 
 export type StrategyRecord = {
