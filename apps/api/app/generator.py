@@ -30,6 +30,23 @@ _OUTPUT_SCHEMA = {
 _MAX_STRATEGY_INPUT_CHARS = 40_000
 _MAX_OUTPUT_TOKENS = 16_000
 
+_DATA_SOURCE_CATALOG_INSTRUCTIONS = """
+
+Available historical data sources are strictly limited to this catalog:
+- Yahoo Finance (`source`: `yahoo`) accepts any valid Yahoo Finance symbol and
+  only the normalized daily fields `close` and `volume`. Common examples include
+  equities and ETFs such as `FICO`, `SPY`, and `QQQ`, and Yahoo indexes such as
+  `^TNX` and `^VIX`; examples are not an exhaustive symbol allowlist.
+- Open-Meteo historical weather (`source`: `open_meteo`) requires a confirmed
+  location with name, latitude, longitude, and IANA timezone, and accepts only
+  `precipitation_sum`, `temperature_2m_max`, and `temperature_2m_min`.
+Version 1.0 has exactly one signal and may use Yahoo Finance or Open-Meteo.
+Version 1.1 has 2-10 keyed signals, all of which must use Yahoo Finance, and
+exactly one traded target ticker. Do not request or invent FRED, BLS, inflation,
+unemployment, macroeconomic, fundamental, news, or any other provider or field.
+The backend fetches the confirmed data; generated code must never download data.
+"""
+
 _FALLBACK_INSTRUCTIONS = """You generate a deliberately constrained Python trading strategy.
 Return exactly the requested structured object with code and explanation.
 The code must contain exactly one top-level, import-free class named Strategy.
@@ -44,10 +61,13 @@ through each signal date. The backend handles execution and backtesting."""
 
 def _load_instructions() -> str:
     configured_path = os.getenv("API_STRATEGY_PROMPT_PATH")
+    module_path = Path(__file__).resolve()
     candidates = [
         Path(configured_path) if configured_path else None,
-        Path(__file__).resolve().parents[3] / "prompts" / "strategy-codegen.md",
-        Path(__file__).resolve().parents[1] / "prompts" / "strategy-codegen.md",
+        module_path.parents[3] / "prompts" / "strategy-codegen.md"
+        if len(module_path.parents) > 3
+        else None,
+        module_path.parents[1] / "prompts" / "strategy-codegen.md",
     ]
     for candidate in candidates:
         if candidate and candidate.is_file():
@@ -58,7 +78,7 @@ def _load_instructions() -> str:
 
 
 def _instructions_for_strategy(strategy_payload: Any) -> str:
-    instructions = _load_instructions()
+    instructions = _load_instructions() + _DATA_SOURCE_CATALOG_INSTRUCTIONS
     if isinstance(strategy_payload, dict) and strategy_payload.get("version") == "1.1":
         instructions += """
 

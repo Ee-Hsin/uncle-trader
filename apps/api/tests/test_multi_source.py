@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app import main
 from app.data_sources import load_yahoo_signals
+from app.generator import _instructions_for_strategy
 from app.models import BacktestRequest
 from app.repository import StrategyRepository
 from app.strategy_runtime import build_fallback_source, execute_strategy
@@ -90,6 +91,19 @@ def test_version_11_accepts_multiple_sources_and_one_target():
         "treasury_yield",
         "market",
     ]
+
+
+def test_generation_instructions_include_exact_data_source_catalog():
+    instructions = _instructions_for_strategy(_request_payload()["strategy"])
+
+    assert "Yahoo Finance (`source`: `yahoo`)" in instructions
+    assert "`close` and `volume`" in instructions
+    assert "Open-Meteo historical weather (`source`: `open_meteo`)" in instructions
+    assert "`precipitation_sum`" in instructions
+    assert "`temperature_2m_max`" in instructions
+    assert "`temperature_2m_min`" in instructions
+    assert "Version 1.1 has 2-10 keyed signals" in instructions
+    assert "Do not request or invent FRED, BLS, inflation" in instructions
 
 
 def test_version_11_rejects_multiple_targets_or_duplicate_source_keys():
