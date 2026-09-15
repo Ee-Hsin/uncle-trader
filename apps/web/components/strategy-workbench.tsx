@@ -43,8 +43,8 @@ const defaultDraft: StrategyDraftView = {
 };
 
 const starterProps: StrategyWorkbenchProps = {
-  stage: "missing",
-  idea: "Buy when short-term Treasury yields begin trending above their longer-term average.",
+  stage: "empty",
+  idea: "",
   illustrative: true,
   messages: [
     {
@@ -67,60 +67,8 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
   const ready = view.stage === "ready";
-
-  if (view.layout !== "workflow") {
-    return (
-      <section className="chatHome" aria-label="Uncle Trading workspace">
-        <aside className="strategySidebar" aria-label="Past trading strategies">
-          <div className="sidebarBrand">
-            <p className="eyebrow">Uncle Trading</p>
-            <span className="sidebarTitle">Workspace</span>
-          </div>
-          <button type="button" className="newStrategyButton" onClick={() => view.onIdeaChange?.("")}>
-            <span aria-hidden="true">+</span> New strategy
-          </button>
-          <div className="sidebarSection">
-            <p className="sidebarLabel">Past strategies</p>
-            <nav aria-label="Saved trading strategies">
-          {strategies.map((strategy) => (
-            <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
-              <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
-              <span className="sidebarStrategyCopy">
-                <strong>{strategy.name}</strong>
-                <small>{strategy.ticker} · {strategy.lastRun}</small>
-              </span>
-            </Link>
-          ))}
-            </nav>
-          </div>
-          <p className="sidebarNote">Historical results are paper-money simulations.</p>
-        </aside>
-        <section className="chatHomeMain" aria-labelledby="chat-home-title">
-          <header className="chatHomeHeader">
-            <p className="eyebrow">New strategy</p>
-            <h1 id="chat-home-title">What would you like to test?</h1>
-            <p>Describe your trading idea in plain language. Uncle will turn it into a strategy you can review and backtest.</p>
-          </header>
-          <StrategyChat
-            messages={view.messages}
-            idea={view.idea}
-            stage={view.stage}
-            illustrative={view.illustrative}
-            loading={view.chatLoading}
-            error={view.chatError}
-            onIdeaChange={view.onIdeaChange}
-            onSubmit={view.onSubmitIdea}
-          />
-          <div className="chatSuggestions" aria-label="Example strategy ideas">
-            <button type="button" onClick={() => view.onIdeaChange?.("Buy an ETF when its 20-day moving average crosses above its 50-day moving average.")}>Moving average crossover</button>
-            <button type="button" onClick={() => view.onIdeaChange?.("Buy a stock after three consecutive down days and hold it for five trading days.")}>Three-day pullback</button>
-          </div>
-        </section>
-      </section>
-    );
-  }
-
-  return (
+  const sidebar = <StrategySidebar onNewStrategy={view.onNewStrategy} />;
+  const workflow = (
     <section className="workbench" aria-label="Strategy workflow">
       <div className="primaryColumn">
         <StrategyChat
@@ -152,15 +100,85 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
         <ConfirmationPanel
           ready={ready}
           loading={isLoading}
-          finalConfirmed={view.finalConfirmed ?? false}
           hasProposals={view.hasProposals ?? false}
-          onAcceptProposals={view.onAcceptProposals}
-          onConfirm={view.onConfirm}
           onRunBacktest={view.onRunBacktest}
         />
         <DeployPanel deploy={view.deploy ?? starterProps.deploy!} onDeploy={view.onDeploy} />
       </aside>
     </section>
+  );
+
+  if (view.layout !== "workflow" && view.stage === "empty") {
+    return (
+      <section className="chatHome" aria-label="Uncle Trading workspace">
+        {sidebar}
+        <section className="chatHomeMain" aria-labelledby="chat-home-title">
+          <header className="chatHomeHeader">
+            <p className="eyebrow">New strategy</p>
+            <h1 id="chat-home-title">What would you like to test?</h1>
+            <p>Describe your trading idea in plain language. Uncle will turn it into a strategy you can review and backtest.</p>
+          </header>
+          <StrategyChat
+            messages={view.messages}
+            idea={view.idea}
+            stage={view.stage}
+            illustrative={view.illustrative}
+            loading={view.chatLoading}
+            error={view.chatError}
+            onIdeaChange={view.onIdeaChange}
+            onSubmit={view.onSubmitIdea}
+          />
+          <div className="chatSuggestions" aria-label="Example strategy ideas">
+            <button type="button" onClick={() => view.onIdeaChange?.("Buy an ETF when its 20-day moving average crosses above its 50-day moving average.")}>Moving average crossover</button>
+            <button type="button" onClick={() => view.onIdeaChange?.("Buy a stock after three consecutive down days and hold it for five trading days.")}>Three-day pullback</button>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  if (view.layout === "workflow") return workflow;
+
+  return (
+    <section className="chatHome" aria-label="Uncle Trading workspace">
+      {sidebar}
+      <section className="workflowHomeMain">
+        <header className="workflowHomeHeader">
+          <p className="eyebrow">Strategy workspace</p>
+          <h1>{view.draft?.name ?? "Review your strategy"}</h1>
+        </header>
+        {workflow}
+      </section>
+    </section>
+  );
+}
+
+function StrategySidebar({ onNewStrategy }: { onNewStrategy?: () => void }) {
+  return (
+    <aside className="strategySidebar" aria-label="Past trading strategies">
+      <div className="sidebarBrand">
+        <p className="eyebrow">Uncle Trading</p>
+        <span className="sidebarTitle">Workspace</span>
+      </div>
+      <button type="button" className="newStrategyButton" onClick={onNewStrategy} disabled={!onNewStrategy}>
+        <span aria-hidden="true">+</span> New strategy
+      </button>
+      <div className="sidebarSection">
+        <p className="sidebarLabel">Past strategies</p>
+        <nav aria-label="Saved trading strategies">
+          {strategies.map((strategy) => (
+            <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
+              <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
+              <span className="sidebarStrategyCopy">
+                <strong>{strategy.name}</strong>
+                <small>{strategy.ticker} · {strategy.lastRun}</small>
+              </span>
+            </Link>
+          ))}
+        </nav>
+      </div>
+      <p className="sidebarNote">Historical results are paper-money simulations.</p>
+    </aside>
   );
 }
 
@@ -338,39 +356,26 @@ export function EditableStrategyField({
 export function ConfirmationPanel({
   ready,
   loading,
-  finalConfirmed,
   hasProposals,
-  onAcceptProposals,
-  onConfirm,
   onRunBacktest,
 }: {
   ready: boolean;
   loading: boolean;
-  finalConfirmed: boolean;
   hasProposals: boolean;
-  onAcceptProposals?: () => void;
-  onConfirm?: () => void;
   onRunBacktest?: () => void;
 }) {
   return (
     <section className="surface compactSurface" aria-labelledby="confirm-title">
       <p className="label">Confirmation</p>
       <h2 id="confirm-title">Final review</h2>
-      <p className="bodyCopy">Backtesting stays disabled until every required contract field is confirmed by the user.</p>
-      {hasProposals ? (
-        <button type="button" disabled={!onAcceptProposals || loading} className="secondaryButton wideButton" onClick={onAcceptProposals}>
-          Accept proposed values
-        </button>
-      ) : null}
-      {!finalConfirmed ? (
-        <button type="button" disabled={!ready || loading || !onConfirm} className="wideButton" onClick={onConfirm}>
-          Confirm final strategy
-        </button>
-      ) : (
-        <button type="button" disabled={loading || !onRunBacktest} className="wideButton" onClick={onRunBacktest}>
-          {loading ? "Backtest running" : "Run historical paper backtest"}
-        </button>
-      )}
+      <p className="bodyCopy">
+        {hasProposals
+          ? "Suggested values are highlighted. Edit anything you want; running the backtest accepts the draft as shown."
+          : "Review the strategy as shown. Running the backtest accepts these values."}
+      </p>
+      <button type="button" disabled={!ready || loading || !onRunBacktest} className="wideButton" onClick={onRunBacktest}>
+        {loading ? "Backtest running" : "Run historical paper backtest"}
+      </button>
     </section>
   );
 }

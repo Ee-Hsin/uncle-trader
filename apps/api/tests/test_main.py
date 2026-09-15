@@ -60,6 +60,10 @@ def test_backtest_and_deploy_smoke_without_openai(monkeypatch, tmp_path):
             assert body["results"][0]["metrics"]["trade_count"] == 1
             assert any("fallback" in warning for warning in body["warnings"])
 
+            saved = client.get(f"/strategies/{body['strategy_id']}")
+            assert saved.status_code == 200
+            assert saved.json() == body
+
             deployed = client.post(f"/strategies/{body['strategy_id']}/deploy")
             assert deployed.status_code == 200
             assert deployed.json()["status"] == "active"
@@ -96,6 +100,7 @@ def test_invalid_request_and_unknown_deploy_are_contract_errors(tmp_path):
         with TestClient(main.app) as client:
             invalid = client.post("/backtest", json={})
             missing = client.post("/strategies/not-found/deploy")
+            missing_strategy = client.get("/strategies/not-found")
         assert invalid.status_code == 422
         assert invalid.json()["error"]["code"] == "invalid_request"
         assert invalid.json()["generated_code"] == ""
@@ -107,5 +112,8 @@ def test_invalid_request_and_unknown_deploy_are_contract_errors(tmp_path):
                 "message": "The strategy was not found.",
             },
         }
+        assert missing_strategy.status_code == 200
+        assert missing_strategy.json()["status"] == "error"
+        assert missing_strategy.json()["error"]["code"] == "strategy_not_found"
     finally:
         main.app.dependency_overrides.clear()

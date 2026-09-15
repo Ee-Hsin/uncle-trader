@@ -21,6 +21,12 @@ port. OpenAI settings can be supplied through the shell or a local `.env` file:
 API_OPENAI_API_KEY=... API_OPENAI_MODEL=... docker compose up --build
 ```
 
+The web app uses these API routes:
+
+- `POST /backtest` runs and saves a contract-valid paper backtest.
+- `GET /strategies/{strategy_id}` loads a saved backtest for the strategy detail page.
+- `POST /strategies/{strategy_id}/deploy` marks a completed strategy active.
+
 `API_CORS_ORIGINS` accepts a comma-separated list of permitted local web origins
 and defaults to `http://localhost:3000`. `API_DATABASE_PATH` defaults to the
 container's persistent `/data/uncle_trading.db` path in Compose.

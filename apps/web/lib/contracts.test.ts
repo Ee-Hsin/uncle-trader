@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deployStrategy, runBacktest } from "./api-client";
+import { deployStrategy, loadStrategy, runBacktest } from "./api-client";
 import { isBacktestRequest, parseBacktestResponse, parseDeployResponse } from "./contracts";
 import {
   DEFAULT_CONFIRMED_FIELD_PATHS,
@@ -64,6 +64,20 @@ test("backtest transport accepts complete and contract-shaped error responses", 
   const errorFetch = (async () => jsonResponse(backtestErrorFixture, 422)) as typeof fetch;
   const failure = await runBacktest("http://api.test", backtestRequestFixture, undefined, errorFetch);
   assert.equal(failure.status, "error");
+});
+
+test("saved strategy transport validates the backend response", async () => {
+  let requestedUrl = "";
+  const completeFetch = (async (input: RequestInfo | URL) => {
+    requestedUrl = String(input);
+    return jsonResponse(backtestResponseFixture);
+  }) as typeof fetch;
+  const complete = await loadStrategy("http://api.test/", "strategy/id", undefined, completeFetch);
+  assert.equal(complete.status, "complete");
+  assert.equal(requestedUrl, "http://api.test/strategies/strategy%2Fid");
+
+  const malformedFetch = (async () => jsonResponse({ status: "complete" })) as typeof fetch;
+  await assert.rejects(() => loadStrategy("http://api.test", "broken", undefined, malformedFetch), /contract/);
 });
 
 test("deploy transport accepts active and contract-shaped error responses", async () => {

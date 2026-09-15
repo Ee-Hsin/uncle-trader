@@ -216,7 +216,6 @@ def get_strategy(
     strategy_id: str,
     repository: StrategyRepository = Depends(get_repository),
 ) -> BacktestSuccessResponse | BacktestErrorResponse:
-    """Return the saved backtest response used to render a strategy detail page."""
     try:
         stored = repository.fetch(strategy_id)
     except RepositoryError:

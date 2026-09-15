@@ -58,6 +58,30 @@ export async function runBacktest(
   }
 }
 
+export async function loadStrategy(
+  baseUrl: string,
+  strategyId: string,
+  signal?: AbortSignal,
+  fetcher: Fetcher = fetch,
+): Promise<BacktestResponse> {
+  if (!strategyId.trim()) throw new ApiClientError("A strategy ID is required.");
+  let response: Response;
+  try {
+    response = await fetcher(endpoint(baseUrl, `/strategies/${encodeURIComponent(strategyId)}`), { signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiClientError("The strategy API could not be reached.");
+  }
+  const body = await readJson(response);
+  try {
+    return parseBacktestResponse(body);
+  } catch (error) {
+    if (!response.ok) throw new ApiClientError(`The strategy API failed with HTTP ${response.status}.`);
+    if (error instanceof ContractValidationError) throw new ApiClientError(error.message);
+    throw error;
+  }
+}
+
 export async function deployStrategy(
   baseUrl: string,
   strategyId: string,

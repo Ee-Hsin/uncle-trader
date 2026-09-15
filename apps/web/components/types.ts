@@ -120,13 +120,11 @@ export type StrategyWorkbenchProps = {
   illustrative?: boolean;
   chatLoading?: boolean;
   chatError?: string;
-  finalConfirmed?: boolean;
   hasProposals?: boolean;
   onIdeaChange?: (value: string) => void;
   onSubmitIdea?: (value?: string) => void;
+  onNewStrategy?: () => void;
   onFieldChange?: (fieldId: string, value: string) => void;
-  onAcceptProposals?: () => void;
-  onConfirm?: () => void;
   onRunBacktest?: () => void;
   onRetryBacktest?: () => void;
   onDeploy?: () => void;

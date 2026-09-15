@@ -296,6 +296,21 @@ h3 {
   margin-top: 0;
 }
 
+.workflowHomeMain {
+  min-width: 0;
+  padding: 34px 0 64px 28px;
+}
+
+.workflowHomeHeader {
+  margin-bottom: 24px;
+}
+
+.workflowHomeHeader h1 {
+  margin-bottom: 0;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  font-weight: 500;
+}
+
 .chatSuggestions {
   display: flex;
   flex-wrap: wrap;
@@ -580,6 +595,29 @@ h3 {
   margin-top: 34px;
   color: #666;
   font-size: 0.84rem;
+}
+
+.graphLoading {
+  display: grid;
+  align-content: center;
+  gap: 14px;
+  height: 320px;
+  padding: 40px;
+  background: #050505;
+}
+
+.graphLoadingLine {
+  display: block;
+  width: 72%;
+  height: 8px;
+  border-radius: 999px;
+  background: #1d1d1d;
+  animation: graphShimmer 1.2s ease-in-out infinite alternate;
+}
+
+.graphLoadingLine.short {
+  width: 42%;
+  animation-delay: 120ms;
 }
 
 .drawerBackdrop {
@@ -1083,6 +1121,16 @@ pre {
   }
 }
 
+@keyframes graphShimmer {
+  from {
+    opacity: 0.4;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 900px) {
   .workbench,
   .actionRow,
@@ -1115,6 +1163,10 @@ pre {
     width: min(760px, calc(100% - 32px));
     min-height: 620px;
     padding: 42px 0 60px;
+  }
+
+  .workflowHomeMain {
+    padding: 34px 0 60px;
   }
 
   .metricsGrid,
@@ -1182,6 +1234,10 @@ pre {
     height: 240px;
   }
 
+  .graphLoading {
+    height: 240px;
+  }
+
   .composerDrawer {
     padding: 22px 18px;
   }
@@ -1198,6 +1254,10 @@ pre {
     width: 100%;
     min-height: 560px;
     padding: 34px 0 42px;
+  }
+
+  .workflowHomeMain {
+    padding: 28px 0 42px;
   }
 
   .chatHomeHeader h1 {
