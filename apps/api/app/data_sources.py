@@ -8,9 +8,10 @@ returned by these functions.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import math
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
@@ -18,6 +19,8 @@ YAHOO_FIELDS = frozenset({"close", "volume"})
 OPEN_METEO_FIELDS = frozenset(
     {"precipitation_sum", "temperature_2m_max", "temperature_2m_min"}
 )
+US_MARKET_TIMEZONE = ZoneInfo("America/New_York")
+MAX_HOURLY_RANGE_DAYS = 730
 
 
 class DataSourceError(RuntimeError):
@@ -116,6 +119,98 @@ def load_yahoo_signals(
 
     symbols = list(dict.fromkeys(symbol for _, symbol, _ in normalized_sources))
     histories = load_yahoo_prices(
+        symbols, start_date, end_date, download=download
+    )
+    return {
+        key: [{"date": row["date"], "value": row[field]} for row in histories[symbol]]
+        for key, symbol, field in normalized_sources
+    }
+
+
+def load_yahoo_intraday_prices(
+    tickers: Sequence[str],
+    start_date: date | str,
+    end_date: date | str,
+    *,
+    download: Callable[..., Any] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load one-hour Yahoo bars restricted to the regular US trading session."""
+
+    symbols = _validate_symbols(tickers)
+    start, end = _validate_date_range(start_date, end_date)
+    if (end - start).days >= MAX_HOURLY_RANGE_DAYS:
+        raise DataSourceError(
+            "Yahoo Finance hourly data requests may span at most 730 calendar days."
+        )
+    provider_download = download or _yfinance_download()
+    session_bounds = _nyse_session_bounds(start, end)
+    query: str | list[str] = symbols[0] if len(symbols) == 1 else symbols
+
+    try:
+        frame = provider_download(
+            query,
+            start=start.isoformat(),
+            end=(end + timedelta(days=1)).isoformat(),
+            interval="1h",
+            prepost=False,
+            auto_adjust=True,
+            actions=False,
+            progress=False,
+            group_by="column",
+            threads=False,
+            ignore_tz=False,
+        )
+    except Exception as exc:
+        raise DataSourceError("Yahoo Finance hourly data could not be loaded.") from exc
+
+    if frame is None or not hasattr(frame, "empty") or frame.empty:
+        raise DataSourceError("Yahoo Finance returned no hourly historical data.")
+    if not hasattr(frame, "columns") or not hasattr(frame, "index"):
+        raise DataSourceError("Yahoo Finance returned an invalid hourly response.")
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    for symbol in symbols:
+        close_series = _yahoo_series(frame, symbol, "Close", len(symbols))
+        volume_series = _yahoo_series(frame, symbol, "Volume", len(symbols))
+        rows = _normalize_yahoo_intraday_rows(
+            frame.index, close_series, volume_series, symbol, session_bounds
+        )
+        if not rows:
+            raise DataSourceError(
+                f"Yahoo Finance returned no regular-session hourly data for {symbol}."
+            )
+        result[symbol] = rows
+    return result
+
+
+def load_yahoo_intraday_signals(
+    sources: Sequence[Any],
+    start_date: date | str,
+    end_date: date | str,
+    *,
+    download: Callable[..., Any] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load 1-10 keyed hourly Yahoo signals in one provider request."""
+
+    if isinstance(sources, (str, bytes)) or not 1 <= len(sources) <= 10:
+        raise DataSourceError("Between one and ten hourly Yahoo signals are required.")
+    normalized_sources: list[tuple[str, str, str]] = []
+    keys: set[str] = set()
+    for source in sources:
+        key = _source_value(source, "key")
+        symbol = _source_value(source, "symbol")
+        field = _source_value(source, "field")
+        if not isinstance(key, str) or not key.strip() or key in keys:
+            raise DataSourceError("Yahoo signal source keys must be unique and non-empty.")
+        if field not in YAHOO_FIELDS:
+            raise DataSourceError(f"Unsupported Yahoo field: {field}.")
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise DataSourceError("Yahoo Finance symbols must be non-empty strings.")
+        keys.add(key)
+        normalized_sources.append((key, symbol, field))
+
+    symbols = list(dict.fromkeys(symbol for _, symbol, _ in normalized_sources))
+    histories = load_yahoo_intraday_prices(
         symbols, start_date, end_date, download=download
     )
     return {
@@ -283,6 +378,46 @@ def _normalize_yahoo_rows(
     return normalized
 
 
+def _normalize_yahoo_intraday_rows(
+    index: Any,
+    close_series: Any,
+    volume_series: Any,
+    symbol: str,
+    session_bounds: Mapping[str, tuple[datetime, datetime]],
+) -> list[dict[str, Any]]:
+    if len(index) != len(close_series) or len(index) != len(volume_series):
+        raise DataSourceError(f"Yahoo Finance returned malformed hourly data for {symbol}.")
+
+    normalized: list[dict[str, Any]] = []
+    seen_times: set[str] = set()
+    for raw_time, raw_close, raw_volume in zip(index, close_series, volume_series):
+        row_time = _regular_session_timestamp(
+            raw_time, "Yahoo Finance", session_bounds
+        )
+        if row_time is None:
+            continue
+        if row_time in seen_times:
+            raise DataSourceError(
+                f"Yahoo Finance returned duplicate hourly timestamps for {symbol}."
+            )
+        close = _finite_number(raw_close, f"Yahoo Finance close for {symbol}")
+        volume = _finite_number(raw_volume, f"Yahoo Finance volume for {symbol}")
+        if close <= 0:
+            raise DataSourceError(f"Yahoo Finance returned a non-positive close for {symbol}.")
+        if volume < 0:
+            raise DataSourceError(f"Yahoo Finance returned a negative volume for {symbol}.")
+        normalized.append(
+            {
+                "date": row_time,
+                "close": close,
+                "volume": int(volume) if volume.is_integer() else volume,
+            }
+        )
+        seen_times.add(row_time)
+    normalized.sort(key=lambda row: row["date"])
+    return normalized
+
+
 def _normalize_open_meteo_payload(payload: Any, field: str) -> list[dict[str, Any]]:
     if not isinstance(payload, Mapping):
         raise DataSourceError("Open-Meteo returned an invalid response.")
@@ -322,6 +457,51 @@ def _provider_date(value: Any, provider: str) -> str:
         except ValueError:
             pass
     raise DataSourceError(f"{provider} returned an invalid date.")
+
+
+def _nyse_session_bounds(
+    start: date, end: date
+) -> dict[str, tuple[datetime, datetime]]:
+    try:
+        import pandas_market_calendars as market_calendars
+
+        schedule = market_calendars.get_calendar("NYSE").schedule(
+            start_date=start.isoformat(), end_date=end.isoformat()
+        )
+    except Exception as exc:
+        raise DataSourceError("The US market calendar could not be loaded.") from exc
+    return {
+        str(session_date)[:10]: (
+            row["market_open"].to_pydatetime().astimezone(timezone.utc),
+            row["market_close"].to_pydatetime().astimezone(timezone.utc),
+        )
+        for session_date, row in schedule.iterrows()
+    }
+
+
+def _regular_session_timestamp(
+    value: Any,
+    provider: str,
+    session_bounds: Mapping[str, tuple[datetime, datetime]],
+) -> str | None:
+    if hasattr(value, "to_pydatetime"):
+        value = value.to_pydatetime()
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise DataSourceError(f"{provider} returned an invalid hourly timestamp.")
+    row_start = value.astimezone(timezone.utc)
+    session_date = value.astimezone(US_MARKET_TIMEZONE).date().isoformat()
+    bounds = session_bounds.get(session_date)
+    if bounds is None:
+        return None
+    session_open, session_close = bounds
+    if not session_open <= row_start < session_close:
+        return None
+    bar_close = min(row_start + timedelta(hours=1), session_close)
+    return (
+        bar_close
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def _finite_number(value: Any, name: str) -> float:

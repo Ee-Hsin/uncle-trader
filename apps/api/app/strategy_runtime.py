@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import ast
 import multiprocessing
+import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from queue import Empty
 from typing import Any
 
@@ -23,6 +24,10 @@ class StrategyOutput:
 
 
 _BLOCKED_CALLS = {"open", "eval", "exec", "compile", "__import__"}
+_UTC_SIGNAL_TIME_PATTERN = re.compile(
+    r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?Z$"
+)
 _SAFE_BUILTINS = {
     "__build_class__": __build_class__,
     "abs": abs,
@@ -187,10 +192,10 @@ def _validate_signals(value: Any) -> list[dict[str, str]]:
     for signal in value:
         if not isinstance(signal, dict) or set(signal) != {"ticker", "signal_date", "direction"}:
             raise StrategyValidationError("Each signal must have ticker, signal_date, and direction.")
-        try:
-            date.fromisoformat(signal["signal_date"])
-        except (TypeError, ValueError) as exc:
-            raise StrategyValidationError("Signal dates must use YYYY-MM-DD.") from exc
+        if not _valid_signal_time(signal["signal_date"]):
+            raise StrategyValidationError(
+                "Signal dates must use YYYY-MM-DD or ISO 8601 UTC ending in Z."
+            )
         if signal["direction"] not in {"long", "short"}:
             raise StrategyValidationError("Signal direction must be long or short.")
         if not isinstance(signal["ticker"], str) or not signal["ticker"]:
@@ -198,6 +203,23 @@ def _validate_signals(value: Any) -> list[dict[str, str]]:
         normalized.append(signal)
     normalized.sort(key=lambda item: (item["signal_date"], item["ticker"]))
     return normalized
+
+
+def _valid_signal_time(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    if len(value) == 10:
+        try:
+            return date.fromisoformat(value).isoformat() == value
+        except ValueError:
+            return False
+    if _UTC_SIGNAL_TIME_PATTERN.fullmatch(value) is None:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.utcoffset() == timezone.utc.utcoffset(parsed)
 
 
 def build_fallback_source(strategy: Any) -> str:

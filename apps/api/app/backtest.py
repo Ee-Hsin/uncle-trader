@@ -27,8 +27,10 @@ def run_independent_backtests(
     prices: dict[str, list[dict[str, Any]]],
     initial_capital: float,
     allocation_percent: float,
-    holding_period_days: int,
+    holding_period_days: int | None,
     direction: Literal["long", "short"],
+    holding_period_bars: int | None = None,
+    periods_per_year: float = 252.0,
 ) -> list[dict[str, Any]]:
     return [
         run_ticker_backtest(
@@ -39,6 +41,8 @@ def run_independent_backtests(
             allocation_percent=allocation_percent,
             holding_period_days=holding_period_days,
             direction=direction,
+            holding_period_bars=holding_period_bars,
+            periods_per_year=periods_per_year,
         )
         for ticker in target_tickers
     ]
@@ -51,11 +55,16 @@ def run_ticker_backtest(
     price_rows: list[dict[str, Any]],
     initial_capital: float,
     allocation_percent: float,
-    holding_period_days: int,
+    holding_period_days: int | None,
     direction: Literal["long", "short"],
+    holding_period_bars: int | None = None,
+    periods_per_year: float = 252.0,
 ) -> dict[str, Any]:
     rows = _validated_prices(price_rows)
     dates = [row["date"] for row in rows]
+    holding_period = _resolve_holding_period(
+        holding_period_days, holding_period_bars
+    )
     completed: list[PlannedTrade] = []
     available_equity = float(initial_capital)
     previous_exit_date: str | None = None
@@ -67,7 +76,7 @@ def run_ticker_backtest(
         entry_index = _first_index_after(dates, signal_date)
         if entry_index is None:
             continue
-        exit_index = entry_index + holding_period_days
+        exit_index = entry_index + holding_period
         if exit_index >= len(rows):
             continue
         entry_price = rows[entry_index]["close"]
@@ -111,7 +120,9 @@ def run_ticker_backtest(
         }
         for trade in completed
     ]
-    metrics = _metrics(rows, equity_curve, trades, initial_capital)
+    metrics = _metrics(
+        rows, equity_curve, trades, initial_capital, periods_per_year
+    )
     return {
         "ticker": ticker,
         "metrics": metrics,
@@ -143,6 +154,19 @@ def _first_index_after(dates: list[str], signal_date: str) -> int | None:
     return None
 
 
+def _resolve_holding_period(
+    holding_period_days: int | None, holding_period_bars: int | None
+) -> int:
+    configured = [
+        value
+        for value in (holding_period_days, holding_period_bars)
+        if value is not None
+    ]
+    if len(configured) != 1 or isinstance(configured[0], bool) or configured[0] < 1:
+        raise ValueError("Exactly one positive holding period must be provided.")
+    return configured[0]
+
+
 def _equity_curve(
     rows: list[dict[str, Any]], trades: list[PlannedTrade], initial_capital: float
 ) -> list[dict[str, float | str]]:
@@ -172,7 +196,10 @@ def _metrics(
     equity_curve: list[dict[str, float | str]],
     trades: list[dict[str, Any]],
     initial_capital: float,
+    periods_per_year: float,
 ) -> dict[str, Any]:
+    if not math.isfinite(periods_per_year) or periods_per_year <= 0:
+        raise ValueError("periods_per_year must be positive and finite.")
     ending_equity = float(equity_curve[-1]["equity"])
     total_pnl = ending_equity - initial_capital
     total_return = total_pnl / initial_capital * 100.0
@@ -190,7 +217,7 @@ def _metrics(
     if len(returns) >= 2:
         deviation = statistics.stdev(returns)
         if deviation > 0:
-            sharpe = math.sqrt(252.0) * statistics.mean(returns) / deviation
+            sharpe = math.sqrt(periods_per_year) * statistics.mean(returns) / deviation
     peak = equities[0]
     max_drawdown = 0.0
     for equity in equities:
