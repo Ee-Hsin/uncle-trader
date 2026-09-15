@@ -88,6 +88,42 @@ def load_yahoo_signal(
     return [{"date": row["date"], "value": row[field]} for row in rows]
 
 
+def load_yahoo_signals(
+    sources: Sequence[Any],
+    start_date: date | str,
+    end_date: date | str,
+    *,
+    download: Callable[..., Any] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load multiple uniquely keyed Yahoo signal series in one provider request."""
+
+    if isinstance(sources, (str, bytes)) or len(sources) < 2:
+        raise DataSourceError("At least two Yahoo signal sources are required.")
+    normalized_sources: list[tuple[str, str, str]] = []
+    keys: set[str] = set()
+    for source in sources:
+        key = _source_value(source, "key")
+        symbol = _source_value(source, "symbol")
+        field = _source_value(source, "field")
+        if not isinstance(key, str) or not key.strip() or key in keys:
+            raise DataSourceError("Yahoo signal source keys must be unique and non-empty.")
+        if field not in YAHOO_FIELDS:
+            raise DataSourceError(f"Unsupported Yahoo field: {field}.")
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise DataSourceError("Yahoo Finance symbols must be non-empty strings.")
+        keys.add(key)
+        normalized_sources.append((key, symbol, field))
+
+    symbols = list(dict.fromkeys(symbol for _, symbol, _ in normalized_sources))
+    histories = load_yahoo_prices(
+        symbols, start_date, end_date, download=download
+    )
+    return {
+        key: [{"date": row["date"], "value": row[field]} for row in histories[symbol]]
+        for key, symbol, field in normalized_sources
+    }
+
+
 def load_open_meteo_signal(
     *,
     latitude: float,
@@ -148,6 +184,12 @@ def _yfinance_download() -> Callable[..., Any]:
     except ImportError as exc:  # pragma: no cover - deployment configuration
         raise DataSourceError("The Yahoo Finance client is unavailable.") from exc
     return yfinance.download
+
+
+def _source_value(source: Any, name: str) -> Any:
+    if isinstance(source, Mapping):
+        return source.get(name)
+    return getattr(source, name, None)
 
 
 def _validate_symbols(tickers: Sequence[str]) -> list[str]:

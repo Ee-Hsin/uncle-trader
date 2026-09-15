@@ -161,14 +161,22 @@ def _strategy_worker(source: str, data: dict[str, Any], queue: Any) -> None:
 def _validate_required_data(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list) or not value:
         raise StrategyValidationError("required_data() must return a nonempty list.")
+    keys: set[str] = set()
     for request in value:
         if not isinstance(request, dict):
             raise StrategyValidationError("Each required-data request must be a dictionary.")
-        if request.get("key") != "signal" or request.get("source") not in {
-            "yahoo",
-            "open_meteo",
-        }:
+        key = request.get("key")
+        source = request.get("source")
+        if not isinstance(key, str) or not key or key in keys:
+            raise StrategyValidationError("Required-data keys must be unique and nonempty.")
+        if source not in {"yahoo", "open_meteo"}:
             raise StrategyValidationError("The required-data request is invalid.")
+        if source == "yahoo" and (
+            not isinstance(request.get("symbol"), str)
+            or request.get("field") not in {"close", "volume"}
+        ):
+            raise StrategyValidationError("The Yahoo required-data request is invalid.")
+        keys.add(key)
     return value
 
 
@@ -194,6 +202,59 @@ def _validate_signals(value: Any) -> list[dict[str, str]]:
 
 def build_fallback_source(strategy: Any) -> str:
     signal = strategy.signal
+    if hasattr(signal, "sources"):
+        requests = [
+            {
+                "key": source.key,
+                "source": "yahoo",
+                "symbol": source.symbol,
+                "field": source.field,
+            }
+            for source in signal.sources
+        ]
+        keys = [source.key for source in signal.sources]
+        ticker = strategy.target_tickers[0]
+        direction = strategy.direction
+        observations = int(signal.parameters.get("consecutive_observations", 1))
+        observations = max(1, observations)
+        return f'''class Strategy:
+    def required_data(self):
+        return {requests!r}
+
+    def generate_signals(self, data):
+        signals = []
+        keys = {keys!r}
+        series = data["signals"]
+        by_date = {{}}
+        for key in keys:
+            by_date[key] = {{row["date"]: row["value"] for row in series[key]}}
+        previous = {{}}
+        streak = 0
+        for row in series[keys[0]]:
+            current_date = row["date"]
+            values = {{}}
+            complete = True
+            for key in keys:
+                if current_date not in by_date[key]:
+                    complete = False
+                else:
+                    values[key] = by_date[key][current_date]
+            if not complete:
+                continue
+            falling = len(previous) == len(keys)
+            for key in keys:
+                if key not in previous or values[key] >= previous[key]:
+                    falling = False
+            if falling:
+                streak += 1
+            else:
+                streak = 0
+            if streak >= {observations!r}:
+                signals.append({{"ticker": {ticker!r}, "signal_date": current_date, "direction": {direction!r}}})
+            previous = values
+        return signals
+'''
+
     source = signal.source
     request: dict[str, Any] = {
         "key": "signal",

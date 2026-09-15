@@ -69,6 +69,10 @@ Ticker = Annotated[
 SignalSymbol = Annotated[
     StrictStr, StringConstraints(min_length=1, max_length=32, pattern=r"\S")
 ]
+SignalKey = Annotated[
+    StrictStr,
+    StringConstraints(min_length=1, max_length=32, pattern=r"^[a-z][a-z0-9_]*$"),
+]
 FiniteNumber = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 ParameterValue = StrictStr | StrictFloat | StrictInt | StrictBool
 DetailValue = ParameterValue | None
@@ -136,6 +140,33 @@ class Signal(ContractModel):
         return self
 
 
+class YahooSignalSource(ContractModel):
+    """One keyed Yahoo series in the additive version 1.1 preview."""
+
+    key: SignalKey
+    source: Literal["yahoo"]
+    symbol: SignalSymbol
+    field: Literal["close", "volume"]
+
+
+class MultiSignal(ContractModel):
+    """A complex entry condition evaluated from multiple Yahoo series."""
+
+    sources: Annotated[list[YahooSignalSource], Field(min_length=2, max_length=10)]
+    rule: NonBlankString
+    parameters: dict[StrictStr, ParameterValue]
+
+    @field_validator("sources")
+    @classmethod
+    def require_unique_source_keys(
+        cls, value: list[YahooSignalSource]
+    ) -> list[YahooSignalSource]:
+        keys = [source.key for source in value]
+        if len(keys) != len(set(keys)):
+            raise ValueError("signal source keys must be unique")
+        return value
+
+
 class Execution(ContractModel):
     entry_timing: Literal["next_trading_day_close"]
     holding_period_days: Annotated[int, Field(ge=1, le=252, strict=True)]
@@ -146,12 +177,12 @@ class Execution(ContractModel):
 
 
 class ConfirmedStrategy(ContractModel):
-    version: Literal["1.0"]
+    version: Literal["1.0", "1.1"]
     name: NonBlankString
     thesis: NonBlankString
     target_tickers: Annotated[list[Ticker], Field(min_length=1, max_length=5)]
     direction: Literal["long", "short"]
-    signal: Signal
+    signal: Signal | MultiSignal
     execution: Execution
 
     @field_validator("target_tickers")
@@ -160,6 +191,17 @@ class ConfirmedStrategy(ContractModel):
         if len(value) != len(set(value)):
             raise ValueError("target_tickers must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_version_shape(self) -> ConfirmedStrategy:
+        if self.version == "1.0" and not isinstance(self.signal, Signal):
+            raise ValueError("version 1.0 requires the legacy single signal shape")
+        if self.version == "1.1":
+            if not isinstance(self.signal, MultiSignal):
+                raise ValueError("version 1.1 requires signal.sources")
+            if len(self.target_tickers) != 1:
+                raise ValueError("version 1.1 requires exactly one target ticker")
+        return self
 
 
 class BacktestConfiguration(ContractModel):
