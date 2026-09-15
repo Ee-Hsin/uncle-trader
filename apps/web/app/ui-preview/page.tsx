@@ -247,7 +247,7 @@ export default function UiPreviewPage() {
         {scenarios.map((scenario) => (
           <section className="previewScenario" aria-labelledby={`${scenario.title}-title`} key={scenario.title}>
             <h2 id={`${scenario.title}-title`}>{scenario.title}</h2>
-            <StrategyWorkbench {...scenario.props} />
+            <StrategyWorkbench layout="workflow" {...scenario.props} />
           </section>
         ))}
       </div>

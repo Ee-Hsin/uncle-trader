@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   BacktestResultsView,
   DeployView,
@@ -62,9 +62,82 @@ const starterProps: StrategyWorkbenchProps = {
 
 export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const view = { ...starterProps, ...props };
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [ideaDraft, setIdeaDraft] = useState(view.idea);
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
   const ready = view.stage === "ready";
+
+  useEffect(() => {
+    if (!composerOpen) {
+      setIdeaDraft(view.idea);
+    }
+  }, [composerOpen, view.idea]);
+
+  useEffect(() => {
+    if (!composerOpen) {
+      return;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setComposerOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [composerOpen]);
+
+  if (view.layout !== "workflow") {
+    return (
+      <section className="dashboard" aria-label="Trading strategies">
+        <header className="dashboardHeader">
+          <div>
+            <p className="eyebrow">Uncle Trading</p>
+            <h1>Strategies</h1>
+          </div>
+          <button type="button" onClick={() => setComposerOpen(true)}>
+            <span aria-hidden="true">+</span> Add strategy
+          </button>
+        </header>
+        <section className="dashboardEmpty" aria-labelledby="empty-dashboard-title">
+          <p className="label">No strategies yet</p>
+          <h2 id="empty-dashboard-title">Start with an idea</h2>
+          <p>Describe a signal in plain language, then review the assumptions before running a historical paper backtest.</p>
+          <button type="button" className="secondaryButton" onClick={() => setComposerOpen(true)}>
+            Add your first strategy
+          </button>
+        </section>
+        {composerOpen ? (
+          <>
+            <button type="button" className="drawerBackdrop" aria-label="Close add strategy panel" onClick={() => setComposerOpen(false)} />
+            <aside className="composerDrawer" aria-label="Add strategy" aria-modal="true">
+              <div className="drawerHeader">
+                <div>
+                  <p className="label">New strategy</p>
+                  <h2>Add a trading strategy</h2>
+                </div>
+                <button type="button" className="iconButton" aria-label="Close add strategy panel" onClick={() => setComposerOpen(false)}>
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+              <StrategyChat
+                messages={view.messages}
+                idea={ideaDraft}
+                stage={view.stage}
+                illustrative={view.illustrative}
+                onIdeaChange={setIdeaDraft}
+                onContinue={() => setComposerOpen(false)}
+                compact
+              />
+              {view.draft ? <StrategyDraftPanel draft={view.draft} missingFields={view.missingFields ?? []} /> : null}
+            </aside>
+          </>
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <section className="workbench" aria-label="Strategy workflow">
@@ -88,9 +161,16 @@ export function StrategyChat({
   idea,
   stage,
   illustrative,
-}: Pick<StrategyWorkbenchProps, "messages" | "idea" | "stage" | "illustrative">) {
+  onIdeaChange,
+  onContinue,
+  compact = false,
+}: Pick<StrategyWorkbenchProps, "messages" | "idea" | "stage" | "illustrative"> & {
+  onIdeaChange?: (value: string) => void;
+  onContinue?: () => void;
+  compact?: boolean;
+}) {
   return (
-    <section className="surface chatPanel" aria-labelledby="chat-title">
+    <section className={compact ? "chatPanel drawerChat" : "surface chatPanel"} aria-labelledby="chat-title">
       <div className="sectionHeader">
         <div>
           <p className="label">Conversation</p>
@@ -110,10 +190,16 @@ export function StrategyChat({
       <label htmlFor="idea" className="fieldLabel">
         Trading idea
       </label>
-      <textarea id="idea" value={idea} readOnly placeholder="Describe a daily stock or ETF strategy." />
+      <textarea
+        id="idea"
+        value={idea}
+        readOnly={!onIdeaChange}
+        onChange={(event) => onIdeaChange?.(event.target.value)}
+        placeholder="Describe a daily stock or ETF strategy."
+      />
       <div className="actionRow">
-        <span className="muted">Jordan will wire chat submission and draft updates.</span>
-        <button type="button" disabled>
+        <span className="muted">{onIdeaChange ? "Add the idea in your own words." : "Preview state - no service connected."}</span>
+        <button type="button" disabled={onIdeaChange ? idea.trim().length === 0 : true} onClick={onContinue}>
           Continue
         </button>
       </div>

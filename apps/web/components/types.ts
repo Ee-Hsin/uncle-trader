@@ -106,6 +106,7 @@ export type StrategyWorkbenchProps = {
   stage: WorkbenchStage;
   messages: ConversationMessage[];
   idea: string;
+  layout?: "dashboard" | "workflow";
   draft?: StrategyDraftView;
   missingFields?: string[];
   results?: BacktestResultsView;
