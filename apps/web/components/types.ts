@@ -120,15 +120,13 @@ export type StrategyWorkbenchProps = {
   illustrative?: boolean;
   chatLoading?: boolean;
   chatError?: string;
-  finalConfirmed?: boolean;
-  hasProposals?: boolean;
+  hasDraft?: boolean;
+  pastStrategies?: StrategyRecord[];
   onIdeaChange?: (value: string) => void;
   onSubmitIdea?: (value?: string) => void;
+  onNewStrategy?: () => void;
   onFieldChange?: (fieldId: string, value: string) => void;
-  onAcceptProposals?: () => void;
-  onConfirm?: () => void;
   onRunBacktest?: () => void;
-  onRetryBacktest?: () => void;
   onDeploy?: () => void;
 };
 
@@ -136,7 +134,7 @@ export type StrategyRecord = {
   id: string;
   name: string;
   ticker: string;
-  status: "paper" | "draft";
+  status: "paper" | "draft" | "active";
   returnPercent: number;
   pnl: number;
   lastRun: string;

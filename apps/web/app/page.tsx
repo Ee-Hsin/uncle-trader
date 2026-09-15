@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StrategyWorkbench } from "@/components/strategy-workbench";
+import { strategies } from "@/components/strategy-data";
 import type { FieldState, WorkbenchStage } from "@/components/types";
 import { deployStrategy, runBacktest } from "@/lib/api-client";
 import type { BacktestRequest, BacktestResponse, DeployResponse, SignalSource } from "@/lib/contracts";
@@ -13,12 +14,20 @@ import {
   conversationMessagesForRequest,
   createEmptyDraft,
   parseConversationTurn,
+  populatedDraftPaths,
   proposedDraftPaths,
   updateDraftPath,
   type ConversationDraft,
   type ConversationMessage,
 } from "@/lib/conversation";
 import { fieldPathLabel, mapBacktestForDisplay, mapDeployForDisplay, mapDraftForDisplay } from "@/lib/presentation";
+import {
+  loadSavedStrategies,
+  mergeSavedStrategies,
+  storeSavedStrategies,
+  strategyRecordFromDeployment,
+  upsertSavedStrategy,
+} from "@/lib/saved-strategies";
 
 const NUMBER_PATHS = new Set([
   "strategy.signal.location.latitude",
@@ -31,6 +40,11 @@ const NUMBER_PATHS = new Set([
   "strategy.execution.allocation_percent",
   "backtest.initial_capital",
 ]);
+
+const INITIAL_MESSAGE: ConversationMessage = {
+  role: "assistant",
+  content: "Describe a daily stock or ETF trading idea. I will fill in reasonable assumptions for you to review.",
+};
 
 function apiErrorMessage(body: unknown, fallback: string): string {
   if (
@@ -48,12 +62,7 @@ function apiErrorMessage(body: unknown, fallback: string): string {
 }
 
 export default function Home() {
-  const [messages, setMessages] = useState<ConversationMessage[]>([
-    {
-      role: "assistant",
-      content: "Describe one daily stock or ETF trading signal. I will ask for one missing decision at a time.",
-    },
-  ]);
+  const [messages, setMessages] = useState<ConversationMessage[]>([INITIAL_MESSAGE]);
   const [idea, setIdea] = useState("");
   const [draft, setDraft] = useState<ConversationDraft>(createEmptyDraft);
   const [confirmedPaths, setConfirmedPaths] = useState<string[]>([...DEFAULT_CONFIRMED_FIELD_PATHS]);
@@ -65,15 +74,28 @@ export default function Home() {
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [deploy, setDeploy] = useState<DeployResponse | null>(null);
   const [deployLoading, setDeployLoading] = useState(false);
+  const [pastStrategies, setPastStrategies] = useState(strategies);
   const chatSequence = useRef(0);
   const chatAbort = useRef<AbortController | null>(null);
   const backtestAbort = useRef<AbortController | null>(null);
   const deployAbort = useRef<AbortController | null>(null);
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+  useEffect(() => {
+    setPastStrategies(mergeSavedStrategies(loadSavedStrategies(window.localStorage), strategies));
+  }, []);
+
   const issues = useMemo(() => confirmationIssues(draft, confirmedPaths), [draft, confirmedPaths]);
   const proposedPaths = useMemo(() => proposedDraftPaths(draft, confirmedPaths), [draft, confirmedPaths]);
   const backtestView = useMemo(() => (backtest ? mapBacktestForDisplay(backtest) : null), [backtest]);
+  const readyRequest = useMemo(() => {
+    if (issues.missing.length > 0 || issues.contractError) return null;
+    try {
+      return confirmedBacktestRequestFromDraft(draft, populatedDraftPaths(draft));
+    } catch {
+      return null;
+    }
+  }, [draft, issues.contractError, issues.missing.length]);
 
   function fieldState(path: string): FieldState {
     if (confirmedPaths.includes(path)) return "confirmed";
@@ -82,16 +104,17 @@ export default function Home() {
   }
 
   const draftView = useMemo(() => mapDraftForDisplay(draft, fieldState), [draft, confirmedPaths, proposedPaths]);
-  const canConfirm = issues.missing.length === 0 && issues.proposed.length === 0 && !issues.contractError;
   const stage: WorkbenchStage = deploy?.status === "active"
     ? "active"
     : backtestLoading
       ? "loading"
+      : chatLoading
+        ? "conversation"
       : backtestError
         ? "failure"
         : backtestView
           ? "complete"
-          : confirmedRequest || canConfirm
+          : readyRequest
             ? "ready"
             : proposedPaths.length > 0
               ? "proposed"
@@ -108,6 +131,22 @@ export default function Home() {
 
   function invalidateConfirmation() {
     cancelInFlightWork();
+    setConfirmedRequest(null);
+    setBacktest(null);
+    setBacktestError(null);
+    setDeploy(null);
+  }
+
+  function startNewStrategy() {
+    chatAbort.current?.abort();
+    chatSequence.current += 1;
+    cancelInFlightWork();
+    setMessages([INITIAL_MESSAGE]);
+    setIdea("");
+    setDraft(createEmptyDraft());
+    setConfirmedPaths([...DEFAULT_CONFIRMED_FIELD_PATHS]);
+    setChatLoading(false);
+    setChatError(null);
     setConfirmedRequest(null);
     setBacktest(null);
     setBacktestError(null);
@@ -235,22 +274,13 @@ export default function Home() {
     }
   }
 
-  function acceptProposals() {
-    setConfirmedPaths((current) => [...new Set([...current, ...proposedPaths])]);
-    invalidateConfirmation();
-  }
-
-  function confirmDraft() {
-    try {
-      setConfirmedRequest(confirmedBacktestRequestFromDraft(draft, confirmedPaths));
-      setBacktestError(null);
-    } catch (error) {
-      setBacktestError(error instanceof Error ? error.message : "The draft is not valid.");
-    }
-  }
-
   async function startBacktest() {
-    if (!confirmedRequest || backtestLoading) return;
+    const request = confirmedRequest ?? readyRequest;
+    if (!request || backtestLoading) return;
+    if (!confirmedRequest) {
+      setConfirmedPaths(populatedDraftPaths(draft));
+      setConfirmedRequest(request);
+    }
     backtestAbort.current?.abort();
     deployAbort.current?.abort();
     const controller = new AbortController();
@@ -260,7 +290,7 @@ export default function Home() {
     setBacktest(null);
     setDeploy(null);
     try {
-      const response = await runBacktest(apiBaseUrl, confirmedRequest, controller.signal);
+      const response = await runBacktest(apiBaseUrl, request, controller.signal);
       setBacktest(response);
       if (response.status === "error") setBacktestError(response.error.message);
     } catch (error) {
@@ -277,7 +307,19 @@ export default function Home() {
     deployAbort.current = controller;
     setDeployLoading(true);
     try {
-      setDeploy(await deployStrategy(apiBaseUrl, backtestView.strategyId, controller.signal));
+      const response = await deployStrategy(apiBaseUrl, backtestView.strategyId, controller.signal);
+      setDeploy(response);
+      if (response.status === "active" && backtest?.status === "complete") {
+        const request = confirmedRequest ?? readyRequest;
+        if (request) {
+          const savedStrategy = strategyRecordFromDeployment(request, backtest);
+          setPastStrategies((current) => {
+            const next = upsertSavedStrategy(current, savedStrategy);
+            storeSavedStrategies(window.localStorage, next);
+            return next;
+          });
+        }
+      }
     } catch (error) {
       if (!controller.signal.aborted) {
         setDeploy({
@@ -294,28 +336,33 @@ export default function Home() {
   }
 
   return (
-    <main>
+    <main className="strategyAppRoot">
       <StrategyWorkbench
-        layout="workflow"
         stage={stage}
         messages={messages.map((message, index) => ({ id: `${message.role}-${index}`, role: message.role, text: message.content }))}
         idea={idea}
         draft={draftView}
-        missingFields={issues.missing.map(fieldPathLabel)}
+        missingFields={[
+          ...issues.missing.map(fieldPathLabel),
+          ...(issues.contractError ? [issues.contractError] : []),
+        ]}
         results={backtestView ?? undefined}
         deploy={mapDeployForDisplay(deploy, deployLoading, Boolean(backtestView))}
         error={backtestError ? { title: "Backtest could not run", message: backtestError } : undefined}
         chatLoading={chatLoading}
         chatError={chatError ?? undefined}
-        finalConfirmed={Boolean(confirmedRequest)}
-        hasProposals={proposedPaths.length > 0}
+        hasDraft={Boolean(
+          draft.strategy.name ||
+          draft.strategy.target_tickers ||
+          draft.strategy.signal.source ||
+          draft.strategy.signal.rule
+        )}
+        pastStrategies={pastStrategies}
         onIdeaChange={setIdea}
         onSubmitIdea={submitIdea}
+        onNewStrategy={startNewStrategy}
         onFieldChange={editField}
-        onAcceptProposals={acceptProposals}
-        onConfirm={confirmDraft}
         onRunBacktest={startBacktest}
-        onRetryBacktest={startBacktest}
         onDeploy={startDeploy}
       />
     </main>

@@ -220,6 +220,30 @@ def deploy_strategy(
     )
 
 
+@app.get(
+    "/strategies/{strategy_id}",
+    response_model=BacktestResponse,
+    response_model_exclude_none=True,
+)
+def get_strategy(
+    strategy_id: str,
+    repository: StrategyRepository = Depends(get_repository),
+) -> BacktestSuccessResponse | BacktestErrorResponse:
+    try:
+        stored = repository.fetch(strategy_id)
+    except RepositoryError:
+        return _backtest_error(
+            "backtest_failed",
+            "The strategy could not be loaded.",
+            "",
+        )
+
+    if stored is None:
+        return _backtest_error("strategy_not_found", "The strategy was not found.", "")
+
+    return BacktestSuccessResponse.model_validate(stored.response)
+
+
 def _fixture_check(source: str, request: BacktestRequest) -> None:
     dates = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
     data: dict[str, Any] = {

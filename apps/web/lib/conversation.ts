@@ -535,7 +535,7 @@ export function confirmationIssues(draft: ConversationDraft, confirmedPaths: rea
   const missing = missingDraftPaths(draft);
   const proposed = proposedDraftPaths(draft, confirmedPaths);
   let contractError: string | null = null;
-  if (missing.length === 0 && proposed.length === 0) {
+  if (missing.length === 0) {
     try {
       backtestRequestFromDraft(draft);
     } catch (error) {

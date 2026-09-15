@@ -65,17 +65,17 @@ test("chat uses strict Responses API output and accepts a mocked structured turn
   assert.ok(!schema.properties.confirmed_field_paths.items.enum.includes("strategy.backtest.start_date"));
 });
 
-test("chat preserves confirmed values when the model changes them", async () => {
+test("chat applies natural-language revisions to confirmed fields", async () => {
   const body = requestBody();
   const changedDraft = structuredClone(body.strategy_draft);
-  changedDraft.strategy.name = "Changed without approval";
+  changedDraft.strategy.name = "Lower-risk falling yields";
   const client = {
     responses: {
       create: async () => ({
         status: "completed",
         output: [],
         output_text: JSON.stringify({
-          assistant_message: "Ready.",
+          assistant_message: "I updated the strategy name based on your request.",
           strategy_draft: changedDraft,
           missing_fields: [],
           confirmed_field_paths: body.confirmed_field_paths,
@@ -89,7 +89,41 @@ test("chat preserves confirmed values when the model changes them", async () => 
     new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify(body) }),
   );
   const result = await response.json();
-  assert.equal(result.strategy_draft.strategy.name, backtestRequestFixture.strategy.name);
+  assert.equal(result.strategy_draft.strategy.name, "Lower-risk falling yields");
+  assert.ok(result.confirmed_field_paths.includes("strategy.name"));
+});
+
+test("chat retains unchanged confirmations and marks unconfirmed revisions as proposals", async () => {
+  const body = requestBody();
+  const changedDraft = structuredClone(body.strategy_draft);
+  changedDraft.strategy.execution.allocation_percent = 10;
+  const modelConfirmedPaths = body.confirmed_field_paths.filter(
+    (path) => path !== "strategy.name" && path !== "strategy.execution.allocation_percent",
+  );
+  const client = {
+    responses: {
+      create: async () => ({
+        status: "completed",
+        output: [],
+        output_text: JSON.stringify({
+          assistant_message: "I assumed a lower allocation.",
+          strategy_draft: changedDraft,
+          missing_fields: [],
+          confirmed_field_paths: modelConfirmedPaths,
+          proposed_field_paths: ["strategy.execution.allocation_percent"],
+          ready_for_confirmation: true,
+        }),
+      }),
+    },
+  };
+  const response = await createChatHandler(client, "test-model", "instructions")(
+    new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify(body) }),
+  );
+  const result = await response.json();
+
+  assert.ok(result.confirmed_field_paths.includes("strategy.name"));
+  assert.ok(!result.confirmed_field_paths.includes("strategy.execution.allocation_percent"));
+  assert.ok(result.proposed_field_paths.includes("strategy.execution.allocation_percent"));
 });
 
 test("chat returns safe errors for malformed, refused, and incomplete responses", async (context) => {
