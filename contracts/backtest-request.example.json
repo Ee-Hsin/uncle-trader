@@ -1,0 +1,31 @@
+{
+  "strategy": {
+    "version": "1.0",
+    "name": "FICO after three falling Treasury-yield closes",
+    "thesis": "A sustained decrease in the 10-year Treasury yield can support the valuation of FICO shares.",
+    "target_tickers": ["FICO"],
+    "direction": "long",
+    "signal": {
+      "source": "yahoo",
+      "symbol": "^TNX",
+      "field": "close",
+      "rule": "Enter long FICO when the Yahoo ^TNX daily close decreases for three consecutive observations.",
+      "parameters": {
+        "consecutive_observations": 3,
+        "observation_frequency": "daily"
+      }
+    },
+    "execution": {
+      "entry_timing": "next_trading_day_close",
+      "holding_period_days": 5,
+      "allocation_percent": 20,
+      "ignore_overlapping_signals": true
+    }
+  },
+  "backtest": {
+    "start_date": "2015-01-01",
+    "end_date": "2025-12-31",
+    "initial_capital": 10000
+  }
+}
+

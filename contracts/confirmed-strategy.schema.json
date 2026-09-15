@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Confirmed Strategy",
+  "description": "A user-confirmed trading rule. Backtest settings are intentionally excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "name",
+    "thesis",
+    "target_tickers",
+    "direction",
+    "signal",
+    "execution"
+  ],
+  "properties": {
+    "version": {
+      "const": "1.0",
+      "description": "The confirmed-strategy contract version."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "A short user-facing strategy name."
+    },
+    "thesis": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "The plain-language reason the user expects the strategy to work."
+    },
+    "target_tickers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "description": "US stock or ETF tickers to backtest independently.",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]{1,5}(?:[.-][A-Z])?$",
+        "description": "An uppercase US stock or ETF ticker, including an optional share-class suffix."
+      }
+    },
+    "direction": {
+      "enum": ["long", "short"],
+      "description": "The position direction used when the entry condition is true."
+    },
+    "signal": {
+      "$ref": "#/$defs/signal"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    }
+  },
+  "$defs": {
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "latitude", "longitude", "timezone"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "A user-facing place name."
+        },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90,
+          "description": "Latitude in decimal degrees."
+        },
+        "longitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180,
+          "description": "Longitude in decimal degrees."
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?:UTC|[A-Za-z_]+(?:/[A-Za-z0-9._+-]+)+)$",
+          "description": "An IANA timezone name, such as America/Toronto."
+        }
+      }
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "field", "rule", "parameters"],
+      "properties": {
+        "source": {
+          "enum": ["yahoo", "open_meteo"],
+          "description": "The historical data provider for the entry signal."
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "\\S",
+          "description": "The Yahoo Finance symbol used for the signal. It can differ from a target ticker."
+        },
+        "field": {
+          "enum": [
+            "close",
+            "volume",
+            "precipitation_sum",
+            "temperature_2m_max",
+            "temperature_2m_min"
+          ],
+          "description": "The historical series evaluated by the entry rule."
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "One explicit plain-language entry condition."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Named values used by the entry condition.",
+          "additionalProperties": {
+            "type": ["string", "number", "integer", "boolean"]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "yahoo"
+              }
+            },
+            "required": ["source"]
+          },
+          "then": {
+            "required": ["symbol"],
+            "properties": {
+              "field": {
+                "enum": ["close", "volume"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "open_meteo"
+              }
+            },
+            "required": ["source"]
+          },
+          "then": {
+            "required": ["location"],
+            "properties": {
+              "field": {
+                "enum": [
+                  "precipitation_sum",
+                  "temperature_2m_max",
+                  "temperature_2m_min"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_timing",
+        "holding_period_days",
+        "allocation_percent",
+        "ignore_overlapping_signals"
+      ],
+      "properties": {
+        "entry_timing": {
+          "const": "next_trading_day_close",
+          "description": "Enter at the next trading day's close after a signal."
+        },
+        "holding_period_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 252,
+          "description": "The fixed number of trading days to hold a position."
+        },
+        "allocation_percent": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "description": "The percentage points of capital allocated to each independent target backtest."
+        },
+        "ignore_overlapping_signals": {
+          "const": true,
+          "description": "Ignore new signals while a position in the same independent backtest is open."
+        }
+      }
+    }
+  }
+}
+

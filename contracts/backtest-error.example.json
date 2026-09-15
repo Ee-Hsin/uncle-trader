@@ -1,0 +1,13 @@
+{
+  "status": "error",
+  "generated_code": "",
+  "error": {
+    "code": "generated_code_rejected",
+    "message": "The generated strategy did not pass the safety checks.",
+    "details": {
+      "reason": "The generated code included a disallowed import.",
+      "attempt": 1
+    }
+  }
+}
+

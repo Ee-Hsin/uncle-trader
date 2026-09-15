@@ -1,0 +1,50 @@
+{
+  "status": "complete",
+  "strategy_id": "fico-tnx-down-3d",
+  "strategy_summary": "Buy FICO at the next trading-day close after ^TNX closes lower for three consecutive observations, then hold for five trading days.",
+  "generated_code": "class Strategy:\n    def required_data(self):\n        return [{\"key\": \"signal\", \"source\": \"yahoo\", \"symbol\": \"^TNX\", \"field\": \"close\"}]\n\n    def generate_signals(self, data):\n        signals = []\n        previous_value = None\n        decrease_count = 0\n        for row in data[\"signal\"]:\n            value = row[\"value\"]\n            if previous_value is not None and value < previous_value:\n                decrease_count += 1\n            else:\n                decrease_count = 0\n            if decrease_count >= 3:\n                signals.append({\"ticker\": \"FICO\", \"signal_date\": row[\"date\"], \"direction\": \"long\"})\n            previous_value = value\n        return signals",
+  "warnings": [
+    "This is a paper-money simulation only.",
+    "Short positions, when used, use simplified assumptions.",
+    "Fees and slippage are not included.",
+    "Historical results do not predict future results."
+  ],
+  "results": [
+    {
+      "ticker": "FICO",
+      "metrics": {
+        "total_pnl": 200,
+        "total_return_percent": 2,
+        "sharpe_ratio": null,
+        "average_pnl_per_trade": 200,
+        "expected_value_per_trade": 200,
+        "win_rate_percent": 100,
+        "max_drawdown_percent": 0,
+        "trade_count": 1,
+        "buy_and_hold_return_percent": 31.2
+      },
+      "equity_curve": [
+        {
+          "date": "2024-04-04",
+          "equity": 10000
+        },
+        {
+          "date": "2024-04-11",
+          "equity": 10200
+        }
+      ],
+      "trades": [
+        {
+          "entry_date": "2024-04-04",
+          "exit_date": "2024-04-11",
+          "direction": "long",
+          "entry_price": 480,
+          "exit_price": 528,
+          "quantity": 4.1666666667,
+          "pnl": 200,
+          "return_percent": 10
+        }
+      ]
+    }
+  ]
+}

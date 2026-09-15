@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Backtest Request",
+  "description": "A confirmed strategy and the settings for one historical test run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["strategy", "backtest"],
+  "properties": {
+    "strategy": {
+      "$ref": "confirmed-strategy.schema.json"
+    },
+    "backtest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_date", "end_date", "initial_capital"],
+      "properties": {
+        "start_date": {
+          "$ref": "#/$defs/date",
+          "description": "The first calendar date in the backtest period."
+        },
+        "end_date": {
+          "$ref": "#/$defs/date",
+          "description": "The last calendar date in the backtest period."
+        },
+        "initial_capital": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Paper-money starting capital for each independent target ticker backtest."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])$"
+    }
+  }
+}
+

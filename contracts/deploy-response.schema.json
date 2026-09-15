@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Deploy Response",
+  "description": "The result of activating a saved strategy for simulated deployment.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "strategy_id", "active", "next_check_at"],
+      "properties": {
+        "status": {
+          "const": "active"
+        },
+        "strategy_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "active": {
+          "const": true
+        },
+        "next_check_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "The next simulated evaluation time in ISO 8601 UTC format."
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "error"],
+      "properties": {
+        "status": {
+          "const": "error"
+        },
+        "error": {
+          "$ref": "backtest-response.schema.json#/$defs/errorObject"
+        }
+      }
+    }
+  ]
+}
+

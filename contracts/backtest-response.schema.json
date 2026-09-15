@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Backtest Response",
+  "description": "A complete per-ticker backtest result or a user-safe error.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/successResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])$"
+    },
+    "ticker": {
+      "type": "string",
+      "pattern": "^[A-Z]{1,5}(?:[.-][A-Z])?$"
+    },
+    "errorObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "generation_failed",
+            "generated_code_rejected",
+            "data_unavailable",
+            "backtest_failed",
+            "strategy_not_found"
+          ],
+          "description": "A stable error code for application logic."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "A non-sensitive message safe to show to a user."
+        },
+        "details": {
+          "type": "object",
+          "description": "Optional diagnostic values safe to return to the client.",
+          "additionalProperties": {
+            "type": ["string", "number", "integer", "boolean", "null"]
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_pnl",
+        "total_return_percent",
+        "sharpe_ratio",
+        "average_pnl_per_trade",
+        "expected_value_per_trade",
+        "win_rate_percent",
+        "max_drawdown_percent",
+        "trade_count",
+        "buy_and_hold_return_percent"
+      ],
+      "properties": {
+        "total_pnl": {
+          "type": "number",
+          "description": "Total profit or loss in currency units."
+        },
+        "total_return_percent": {
+          "type": "number",
+          "description": "Total strategy return in percentage points."
+        },
+        "sharpe_ratio": {
+          "type": ["number", "null"],
+          "description": "Risk-adjusted return, or null when there is not enough data."
+        },
+        "average_pnl_per_trade": {
+          "type": "number",
+          "description": "Mean profit or loss per completed trade in currency units."
+        },
+        "expected_value_per_trade": {
+          "type": "number",
+          "description": "Estimated profit or loss per trade in currency units."
+        },
+        "win_rate_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Winning trades as percentage points of completed trades."
+        },
+        "max_drawdown_percent": {
+          "type": "number",
+          "maximum": 0,
+          "description": "Largest peak-to-trough decline in non-positive percentage points."
+        },
+        "trade_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of completed trades."
+        },
+        "buy_and_hold_return_percent": {
+          "type": "number",
+          "description": "Target ticker buy-and-hold return over the same period in percentage points."
+        }
+      }
+    },
+    "equityPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "equity"],
+      "properties": {
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "equity": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Paper account equity in currency units."
+        }
+      }
+    },
+    "trade": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_date",
+        "exit_date",
+        "direction",
+        "entry_price",
+        "exit_price",
+        "quantity",
+        "pnl",
+        "return_percent"
+      ],
+      "properties": {
+        "entry_date": {
+          "$ref": "#/$defs/date"
+        },
+        "exit_date": {
+          "$ref": "#/$defs/date"
+        },
+        "direction": {
+          "enum": ["long", "short"]
+        },
+        "entry_price": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "exit_price": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "quantity": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "pnl": {
+          "type": "number",
+          "description": "Trade profit or loss in currency units."
+        },
+        "return_percent": {
+          "type": "number",
+          "description": "Trade return in percentage points."
+        }
+      }
+    },
+    "tickerResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticker", "metrics", "equity_curve", "trades"],
+      "properties": {
+        "ticker": {
+          "$ref": "#/$defs/ticker",
+          "description": "One ticker from the request's target_tickers array."
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "equity_curve": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/equityPoint"
+          }
+        },
+        "trades": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/trade"
+          }
+        }
+      }
+    },
+    "successResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "strategy_id",
+        "strategy_summary",
+        "generated_code",
+        "warnings",
+        "results"
+      ],
+      "properties": {
+        "status": {
+          "const": "complete"
+        },
+        "strategy_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "strategy_summary": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "generated_code": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "The nonempty generated Strategy class accepted for this backtest."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "description": "Independent results. Each item must correspond to one requested target ticker.",
+          "items": {
+            "$ref": "#/$defs/tickerResult"
+          }
+        }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "generated_code", "error"],
+      "properties": {
+        "status": {
+          "const": "error"
+        },
+        "generated_code": {
+          "type": "string",
+          "description": "Generated code associated with the failure, or an empty string when none is safe or available."
+        },
+        "error": {
+          "$ref": "#/$defs/errorObject"
+        }
+      }
+    }
+  }
+}
+
