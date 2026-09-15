@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StrategyWorkbench } from "@/components/strategy-workbench";
+import { strategies } from "@/components/strategy-data";
 import type { FieldState, WorkbenchStage } from "@/components/types";
 import { deployStrategy, runBacktest } from "@/lib/api-client";
 import type { BacktestRequest, BacktestResponse, DeployResponse, SignalSource } from "@/lib/contracts";
@@ -20,6 +21,13 @@ import {
   type ConversationMessage,
 } from "@/lib/conversation";
 import { fieldPathLabel, mapBacktestForDisplay, mapDeployForDisplay, mapDraftForDisplay } from "@/lib/presentation";
+import {
+  loadSavedStrategies,
+  mergeSavedStrategies,
+  storeSavedStrategies,
+  strategyRecordFromDeployment,
+  upsertSavedStrategy,
+} from "@/lib/saved-strategies";
 
 const NUMBER_PATHS = new Set([
   "strategy.signal.location.latitude",
@@ -66,11 +74,16 @@ export default function Home() {
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [deploy, setDeploy] = useState<DeployResponse | null>(null);
   const [deployLoading, setDeployLoading] = useState(false);
+  const [pastStrategies, setPastStrategies] = useState(strategies);
   const chatSequence = useRef(0);
   const chatAbort = useRef<AbortController | null>(null);
   const backtestAbort = useRef<AbortController | null>(null);
   const deployAbort = useRef<AbortController | null>(null);
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+  useEffect(() => {
+    setPastStrategies(mergeSavedStrategies(loadSavedStrategies(window.localStorage), strategies));
+  }, []);
 
   const issues = useMemo(() => confirmationIssues(draft, confirmedPaths), [draft, confirmedPaths]);
   const proposedPaths = useMemo(() => proposedDraftPaths(draft, confirmedPaths), [draft, confirmedPaths]);
@@ -294,7 +307,19 @@ export default function Home() {
     deployAbort.current = controller;
     setDeployLoading(true);
     try {
-      setDeploy(await deployStrategy(apiBaseUrl, backtestView.strategyId, controller.signal));
+      const response = await deployStrategy(apiBaseUrl, backtestView.strategyId, controller.signal);
+      setDeploy(response);
+      if (response.status === "active" && backtest?.status === "complete") {
+        const request = confirmedRequest ?? readyRequest;
+        if (request) {
+          const savedStrategy = strategyRecordFromDeployment(request, backtest);
+          setPastStrategies((current) => {
+            const next = upsertSavedStrategy(current, savedStrategy);
+            storeSavedStrategies(window.localStorage, next);
+            return next;
+          });
+        }
+      }
     } catch (error) {
       if (!controller.signal.aborted) {
         setDeploy({
@@ -311,7 +336,7 @@ export default function Home() {
   }
 
   return (
-    <main>
+    <main className="strategyAppRoot">
       <StrategyWorkbench
         stage={stage}
         messages={messages.map((message, index) => ({ id: `${message.role}-${index}`, role: message.role, text: message.content }))}
@@ -326,13 +351,18 @@ export default function Home() {
         error={backtestError ? { title: "Backtest could not run", message: backtestError } : undefined}
         chatLoading={chatLoading}
         chatError={chatError ?? undefined}
-        hasProposals={proposedPaths.length > 0}
+        hasDraft={Boolean(
+          draft.strategy.name ||
+          draft.strategy.target_tickers ||
+          draft.strategy.signal.source ||
+          draft.strategy.signal.rule
+        )}
+        pastStrategies={pastStrategies}
         onIdeaChange={setIdea}
         onSubmitIdea={submitIdea}
         onNewStrategy={startNewStrategy}
         onFieldChange={editField}
         onRunBacktest={startBacktest}
-        onRetryBacktest={startBacktest}
         onDeploy={startDeploy}
       />
     </main>

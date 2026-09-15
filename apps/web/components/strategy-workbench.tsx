@@ -1,19 +1,35 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
+import { Dialog } from "@base-ui/react/dialog";
 import type {
   BacktestResultsView,
   DeployView,
   EditableField,
   EquityPoint,
-  FieldState,
   Metric,
   StrategyDraftView,
   StrategyWorkbenchProps,
+  TickerBacktestResult,
   Trade,
 } from "./types";
 import { strategies } from "./strategy-data";
+
+const DEFAULT_SIDEBAR_WIDTH = 260;
+const MINIMUM_DRAG_WIDTH = 140;
+const SIDEBAR_CLOSE_THRESHOLD = 180;
+const MAXIMUM_SIDEBAR_WIDTH = 420;
+const KEYBOARD_RESIZE_STEP = 16;
 
 const defaultDraft: StrategyDraftView = {
   name: "FICO after three falling Treasury-yield closes",
@@ -58,7 +74,7 @@ const starterProps: StrategyWorkbenchProps = {
   deploy: {
     state: "idle",
     disabled: true,
-    helperText: "Confirm the strategy and complete a backtest before simulated deployment.",
+    helperText: "Complete a backtest before deployment.",
   },
 };
 
@@ -66,99 +82,239 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const view = { ...starterProps, ...props };
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
-  const ready = view.stage === "ready";
-  const sidebar = <StrategySidebar onNewStrategy={view.onNewStrategy} />;
-  const workflow = (
-    <section className="workbench" aria-label="Strategy workflow">
-      <div className="primaryColumn">
-        <StrategyChat
-          messages={view.messages}
-          idea={view.idea}
-          stage={view.stage}
-          illustrative={view.illustrative}
-          loading={view.chatLoading}
-          error={view.chatError}
-          onIdeaChange={view.onIdeaChange}
-          onSubmit={view.onSubmitIdea}
-        />
-        {isLoading ? <BacktestProgress /> : null}
-        {isFailure && view.error ? (
-          <FailurePanel title={view.error.title} message={view.error.message} onRetry={view.onRetryBacktest} />
-        ) : null}
-        {view.results ? <BacktestResults results={view.results} /> : null}
-      </div>
-      <aside className="sideColumn" aria-label="Strategy review">
-        {view.draft ? (
-          <StrategyDraftPanel
-            draft={view.draft}
-            missingFields={view.missingFields ?? []}
-            onFieldChange={view.onFieldChange}
-          />
-        ) : (
-          <EmptyDraftPanel />
-        )}
-        <ConfirmationPanel
-          ready={ready}
-          loading={isLoading}
-          hasProposals={view.hasProposals ?? false}
-          onRunBacktest={view.onRunBacktest}
-        />
-        <DeployPanel deploy={view.deploy ?? starterProps.deploy!} onDeploy={view.onDeploy} />
-      </aside>
-    </section>
-  );
+  const hasDraft = view.hasDraft ?? view.stage !== "empty";
+  const [sidebarOpen, setSidebarOpen] = useState(view.layout !== "workflow");
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(hasDraft);
+  const draftHasOpened = useRef(hasDraft);
+  const sidebarToggle = useRef<HTMLButtonElement>(null);
+  const inspectorToggle = useRef<HTMLButtonElement>(null);
+  const sidebarWidthValue = useRef(DEFAULT_SIDEBAR_WIDTH);
+  const resizeStart = useRef<{ pointerId: number; clientX: number; width: number } | null>(null);
 
-  if (view.layout !== "workflow" && view.stage === "empty") {
-    return (
-      <section className="chatHome" aria-label="Uncle Trading workspace">
-        {sidebar}
-        <section className="chatHomeMain" aria-labelledby="chat-home-title">
-          <header className="chatHomeHeader">
-            <p className="eyebrow">New strategy</p>
-            <h1 id="chat-home-title">What would you like to test?</h1>
-            <p>Describe your trading idea in plain language. Uncle will turn it into a strategy you can review and backtest.</p>
-          </header>
+  useEffect(() => {
+    if (!hasDraft) {
+      draftHasOpened.current = false;
+      setInspectorOpen(false);
+      return;
+    }
+    if (!draftHasOpened.current) {
+      draftHasOpened.current = true;
+      setInspectorOpen(true);
+    }
+  }, [hasDraft]);
+
+  const canRunBacktest = ["ready", "complete", "failure", "active"].includes(view.stage);
+  const deployView = view.deploy ?? starterProps.deploy!;
+  const activity = (
+    <>
+      {isLoading ? <BacktestProgress /> : null}
+      {isFailure && view.error ? <FailurePanel title={view.error.title} message={view.error.message} /> : null}
+      {view.results ? <BacktestResults results={view.results} /> : null}
+    </>
+  );
+  const shellClassName = [
+    "strategyAppShell",
+    sidebarOpen ? "hasLeftSidebar" : "",
+    inspectorOpen && hasDraft ? "hasInspector" : "",
+    sidebarResizing ? "isResizingSidebar" : "",
+  ].filter(Boolean).join(" ");
+  const shellStyle = { "--strategy-sidebar-width": `${sidebarWidth}px` } as CSSProperties;
+  const updateSidebarWidth = (width: number) => {
+    const nextWidth = Math.min(MAXIMUM_SIDEBAR_WIDTH, Math.max(MINIMUM_DRAG_WIDTH, width));
+    sidebarWidthValue.current = nextWidth;
+    setSidebarWidth(nextWidth);
+  };
+  const openSidebar = () => {
+    if (sidebarWidthValue.current <= SIDEBAR_CLOSE_THRESHOLD) updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+    setSidebarOpen(true);
+  };
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    requestAnimationFrame(() => sidebarToggle.current?.focus());
+  };
+  const closeInspector = () => {
+    setInspectorOpen(false);
+    requestAnimationFrame(() => inspectorToggle.current?.focus());
+  };
+  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || resizeStart.current) return;
+    resizeStart.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      width: sidebarWidthValue.current,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSidebarResizing(true);
+  };
+  const moveSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = resizeStart.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    updateSidebarWidth(start.width + event.clientX - start.clientX);
+  };
+  const finishSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = resizeStart.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    resizeStart.current = null;
+    setSidebarResizing(false);
+    if (sidebarWidthValue.current <= SIDEBAR_CLOSE_THRESHOLD) {
+      updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+      closeSidebar();
+    }
+  };
+  const resizeSidebarWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Home") {
+      event.preventDefault();
+      closeSidebar();
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      updateSidebarWidth(MAXIMUM_SIDEBAR_WIDTH);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    const nextWidth = sidebarWidthValue.current + direction * KEYBOARD_RESIZE_STEP;
+    if (nextWidth <= SIDEBAR_CLOSE_THRESHOLD) {
+      updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+      closeSidebar();
+      return;
+    }
+    updateSidebarWidth(nextWidth);
+  };
+
+  return (
+    <section className={shellClassName} style={shellStyle} aria-label="Uncle Trading workspace">
+      {sidebarOpen ? (
+        <StrategySidebar
+          width={sidebarWidth}
+          strategies={view.pastStrategies ?? strategies}
+          onNewStrategy={view.onNewStrategy}
+          onClose={closeSidebar}
+          onResizeStart={startSidebarResize}
+          onResizeMove={moveSidebarResize}
+          onResizeEnd={finishSidebarResize}
+          onResizeKeyDown={resizeSidebarWithKeyboard}
+        />
+      ) : null}
+      <section className="strategyMain">
+        <header className="workspaceToolbar">
+          {sidebarOpen ? <span className="toolbarSpacer" aria-hidden="true" /> : (
+            <button
+              type="button"
+              ref={sidebarToggle}
+              className="toolbarButton"
+              aria-label="Show strategy history"
+              aria-expanded={false}
+              aria-controls="strategy-history"
+              onClick={openSidebar}
+            >
+              <PanelIcon side="left" />
+            </button>
+          )}
+          <span className="workspaceTitle">{hasDraft ? view.draft?.name : null}</span>
+          {hasDraft && !inspectorOpen ? (
+            <button
+              type="button"
+              ref={inspectorToggle}
+              className="toolbarButton"
+              aria-label={inspectorOpen ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={inspectorOpen}
+              aria-controls="strategy-details"
+              onClick={() => setInspectorOpen((current) => !current)}
+            >
+              <PanelIcon side="right" />
+            </button>
+          ) : <span className="toolbarSpacer" aria-hidden="true" />}
+        </header>
+        <div className={hasDraft ? "conversationWorkspace" : "chatHomeMain"}>
+          {!hasDraft ? (
+            <header className="chatHomeHeader">
+              <h1>What would you like to test?</h1>
+              <p>Describe a trading idea and Uncle will build it.</p>
+            </header>
+          ) : null}
           <StrategyChat
             messages={view.messages}
             idea={view.idea}
-            stage={view.stage}
-            illustrative={view.illustrative}
             loading={view.chatLoading}
             error={view.chatError}
+            activity={activity}
+            showStrategyActions={hasDraft}
+            canRunBacktest={canRunBacktest}
+            backtestLoading={isLoading}
+            hasResults={Boolean(view.results)}
+            deploy={deployView}
+            suggestions={!hasDraft ? [
+              {
+                label: "Buy Tesla after three down days",
+                value: "Buy Tesla when it falls for three trading days in a row, then hold it for five trading days.",
+              },
+              {
+                label: "Buy ADM after heavy Iowa rain",
+                value: "Buy ADM when Iowa receives more than 25 mm of rain in a day, then hold it for five trading days.",
+              },
+            ] : undefined}
             onIdeaChange={view.onIdeaChange}
             onSubmit={view.onSubmitIdea}
+            onRunBacktest={view.onRunBacktest}
+            onDeploy={view.onDeploy}
           />
-          <div className="chatSuggestions" aria-label="Example strategy ideas">
-            <button type="button" onClick={() => view.onIdeaChange?.("Buy an ETF when its 20-day moving average crosses above its 50-day moving average.")}>Moving average crossover</button>
-            <button type="button" onClick={() => view.onIdeaChange?.("Buy a stock after three consecutive down days and hold it for five trading days.")}>Three-day pullback</button>
-          </div>
-        </section>
+        </div>
       </section>
-    );
-  }
-
-  if (view.layout === "workflow") return workflow;
-
-  return (
-    <section className="chatHome" aria-label="Uncle Trading workspace">
-      {sidebar}
-      <section className="workflowHomeMain">
-        <header className="workflowHomeHeader">
-          <p className="eyebrow">Strategy workspace</p>
-          <h1>{view.draft?.name ?? "Review your strategy"}</h1>
-        </header>
-        {workflow}
-      </section>
+      {inspectorOpen && hasDraft ? (
+        <aside id="strategy-details" className="strategyInspector" aria-label="Strategy details">
+          <header className="inspectorHeader">
+            <h2>Strategy details</h2>
+            <button type="button" className="toolbarButton" aria-label="Hide strategy details" onClick={closeInspector}>
+              <CloseIcon />
+            </button>
+          </header>
+          {view.draft ? (
+            <StrategyDraftPanel
+              draft={view.draft}
+              missingFields={view.missingFields ?? []}
+              onFieldChange={view.onFieldChange}
+            />
+          ) : <EmptyDraftPanel />}
+        </aside>
+      ) : null}
     </section>
   );
 }
 
-function StrategySidebar({ onNewStrategy }: { onNewStrategy?: () => void }) {
+function StrategySidebar({
+  width,
+  strategies,
+  onNewStrategy,
+  onClose,
+  onResizeStart,
+  onResizeMove,
+  onResizeEnd,
+  onResizeKeyDown,
+}: {
+  width: number;
+  strategies: StrategyWorkbenchProps["pastStrategies"];
+  onNewStrategy?: () => void;
+  onClose: () => void;
+  onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeEnd: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+}) {
   return (
-    <aside className="strategySidebar" aria-label="Past trading strategies">
+    <aside id="strategy-history" className="strategySidebar" aria-label="Past trading strategies">
       <div className="sidebarBrand">
-        <p className="eyebrow">Uncle Trading</p>
-        <span className="sidebarTitle">Workspace</span>
+        <span className="sidebarTitle">Uncle Trading</span>
+        <button type="button" className="toolbarButton" aria-label="Hide strategy history" onClick={onClose}>
+          <PanelIcon side="left" />
+        </button>
       </div>
       <button type="button" className="newStrategyButton" onClick={onNewStrategy} disabled={!onNewStrategy}>
         <span aria-hidden="true">+</span> New strategy
@@ -166,7 +322,7 @@ function StrategySidebar({ onNewStrategy }: { onNewStrategy?: () => void }) {
       <div className="sidebarSection">
         <p className="sidebarLabel">Past strategies</p>
         <nav aria-label="Saved trading strategies">
-          {strategies.map((strategy) => (
+          {strategies?.map((strategy) => (
             <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
               <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
               <span className="sidebarStrategyCopy">
@@ -177,7 +333,22 @@ function StrategySidebar({ onNewStrategy }: { onNewStrategy?: () => void }) {
           ))}
         </nav>
       </div>
-      <p className="sidebarNote">Historical results are paper-money simulations.</p>
+      <div
+        className="sidebarResizeHandle"
+        role="separator"
+        aria-label="Resize strategy history"
+        aria-orientation="vertical"
+        aria-valuemin={MINIMUM_DRAG_WIDTH}
+        aria-valuemax={MAXIMUM_SIDEBAR_WIDTH}
+        aria-valuenow={Math.round(width)}
+        aria-valuetext={width <= SIDEBAR_CLOSE_THRESHOLD ? "Release to close" : `${Math.round(width)} pixels`}
+        tabIndex={0}
+        onPointerDown={onResizeStart}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+        onKeyDown={onResizeKeyDown}
+      />
     </aside>
   );
 }
@@ -185,43 +356,63 @@ function StrategySidebar({ onNewStrategy }: { onNewStrategy?: () => void }) {
 export function StrategyChat({
   messages,
   idea,
-  stage,
-  illustrative,
   onIdeaChange,
   onSubmit,
   loading = false,
   error,
+  activity,
+  showStrategyActions = false,
+  canRunBacktest = false,
+  backtestLoading = false,
+  hasResults = false,
+  deploy,
+  suggestions,
   compact = false,
-}: Pick<StrategyWorkbenchProps, "messages" | "idea" | "stage" | "illustrative"> & {
+  onRunBacktest,
+  onDeploy,
+}: Pick<StrategyWorkbenchProps, "messages" | "idea"> & {
   onIdeaChange?: (value: string) => void;
   onSubmit?: () => void;
   loading?: boolean;
   error?: string;
+  activity?: ReactNode;
+  showStrategyActions?: boolean;
+  canRunBacktest?: boolean;
+  backtestLoading?: boolean;
+  hasResults?: boolean;
+  deploy?: DeployView;
+  suggestions?: Array<{ label: string; value: string }>;
   compact?: boolean;
+  onRunBacktest?: () => void;
+  onDeploy?: () => void;
 }) {
+  const chatClassName = [
+    compact ? "chatPanel drawerChat" : "chatPanel strategyChat",
+    loading ? "isChatLoading" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <section className={compact ? "chatPanel drawerChat" : "surface chatPanel"} aria-labelledby="chat-title">
-      <div className="sectionHeader">
-        <div>
-          <p className="label">Conversation</p>
-          <h2 id="chat-title">Trading idea</h2>
-        </div>
-        <StatusBadge state={stage === "empty" ? "missing" : "confirmed"} label={stage === "empty" ? "Empty" : "In progress"} />
-      </div>
-      {illustrative ? <p className="notice">Illustrative preview data. No market service is connected here.</p> : null}
+    <section className={chatClassName} aria-label="Strategy conversation">
       {error ? <p className="errorText" role="alert">{error}</p> : null}
       <div className="messageList" aria-label="Conversation messages">
         {messages.map((message) => (
-          <article className={`message ${message.role}`} key={message.id}>
-            <span className="messageRole">{message.role === "assistant" ? "Assistant" : "You"}</span>
+          <article
+            className={`message ${message.role}`}
+            aria-label={message.role === "assistant" ? "Uncle Trading" : "You"}
+            key={message.id}
+          >
             <p>{message.text}</p>
           </article>
         ))}
+        {loading ? (
+          <article className="message assistant typingMessage" aria-label="Uncle Trading is responding" aria-live="polite">
+            <span className="typingIndicator" aria-hidden="true"><i /><i /><i /></span>
+          </article>
+        ) : null}
+        {activity}
       </div>
-      <label htmlFor="idea" className="fieldLabel">
-        Trading idea
-      </label>
       <form
+        className="chatComposer"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit?.();
@@ -229,21 +420,51 @@ export function StrategyChat({
       >
         <textarea
           id="idea"
+          aria-label="Message Uncle Trading"
           maxLength={4_000}
           value={idea}
           readOnly={!onIdeaChange}
           onChange={(event) => onIdeaChange?.(event.target.value)}
           placeholder="Describe a daily stock or ETF strategy."
         />
-        <div className="actionRow">
-          <span className="muted">
-            {loading ? "Reviewing your idea…" : onIdeaChange ? "Add the idea in your own words." : "Preview state - no service connected."}
-          </span>
-          <button type="submit" disabled={!onSubmit || idea.trim().length === 0 || loading}>
-            {loading ? "Sending…" : "Send"}
+        <div className="composerFooter">
+          <div className="composerLeading">
+            {suggestions?.length ? (
+              <div className="composerSuggestions" aria-label="Example strategy ideas">
+                {suggestions.map((suggestion) => (
+                  <button type="button" key={suggestion.value} onClick={() => onIdeaChange?.(suggestion.value)}>
+                    {suggestion.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {showStrategyActions ? (
+              <div className="chatWorkflowActions" aria-label="Strategy actions">
+              <button
+                type="button"
+                className={hasResults ? "quietButton" : "compactActionButton"}
+                disabled={!canRunBacktest || backtestLoading || !onRunBacktest}
+                onClick={onRunBacktest}
+              >
+                {backtestLoading ? "Running backtest…" : hasResults ? "Run again" : "Run backtest"}
+              </button>
+              <button
+                type="button"
+                className={hasResults ? "compactActionButton" : "quietButton"}
+                disabled={!deploy || !onDeploy || deploy.state !== "idle" || deploy.disabled}
+                onClick={onDeploy}
+              >
+                {deploy?.state === "loading" ? "Deploying…" : deploy?.state === "active" ? "Deployed" : "Deploy"}
+              </button>
+              </div>
+            ) : null}
+          </div>
+          <button className="sendButton" type="submit" disabled={!onSubmit || idea.trim().length === 0 || loading}>
+            Send
           </button>
         </div>
       </form>
+      {deploy?.state === "error" ? <p className="deploymentError" role="alert">{deploy.message}</p> : null}
     </section>
   );
 }
@@ -258,42 +479,12 @@ export function StrategyDraftPanel({
   onFieldChange?: (fieldId: string, value: string) => void;
 }) {
   return (
-    <section className="surface" aria-labelledby="draft-title">
-      <div className="sectionHeader">
-        <div>
-          <p className="label">Draft strategy</p>
-          <h2 id="draft-title">{draft.name}</h2>
-        </div>
-        <StatusBadge state={missingFields.length > 0 ? "missing" : "confirmed"} label={missingFields.length > 0 ? "Needs input" : "Ready"} />
-      </div>
-      <p className="bodyCopy">{draft.thesis}</p>
+    <section className="strategyDraft" aria-label="Editable strategy fields">
       <div className="fieldGrid">
         {draft.fields.map((field) => (
           <EditableStrategyField field={field} onChange={onFieldChange} key={field.id} />
         ))}
       </div>
-      <dl className="detailList">
-        <div>
-          <dt>Target tickers</dt>
-          <dd>{draft.targetTickers.join(", ")}</dd>
-        </div>
-        <div>
-          <dt>Direction</dt>
-          <dd>{draft.direction}</dd>
-        </div>
-        <div>
-          <dt>Signal</dt>
-          <dd>
-            {draft.signalSource} {draft.signalSymbol ? `- ${draft.signalSymbol}` : ""} - {draft.signalField}
-          </dd>
-        </div>
-        <div>
-          <dt>Execution</dt>
-          <dd>
-            {draft.execution.holdingPeriodDays ?? "Missing"} trading days - {draft.execution.allocationPercent ?? "Missing"}% allocation
-          </dd>
-        </div>
-      </dl>
       {missingFields.length > 0 ? (
         <div className="callout" role="status">
           <strong>Missing values</strong>
@@ -319,7 +510,6 @@ export function EditableStrategyField({
     <label className="editableField">
       <span>
         {field.label}
-        <StatusBadge state={field.state} label={field.state} />
       </span>
       {field.input === "select" ? (
         <select
@@ -353,77 +543,137 @@ export function EditableStrategyField({
   );
 }
 
-export function ConfirmationPanel({
-  ready,
-  loading,
-  hasProposals,
-  onRunBacktest,
-}: {
-  ready: boolean;
-  loading: boolean;
-  hasProposals: boolean;
-  onRunBacktest?: () => void;
-}) {
-  return (
-    <section className="surface compactSurface" aria-labelledby="confirm-title">
-      <p className="label">Confirmation</p>
-      <h2 id="confirm-title">Final review</h2>
-      <p className="bodyCopy">
-        {hasProposals
-          ? "Suggested values are highlighted. Edit anything you want; running the backtest accepts the draft as shown."
-          : "Review the strategy as shown. Running the backtest accepts these values."}
-      </p>
-      <button type="button" disabled={!ready || loading || !onRunBacktest} className="wideButton" onClick={onRunBacktest}>
-        {loading ? "Backtest running" : "Run historical paper backtest"}
-      </button>
-    </section>
-  );
-}
-
 export function BacktestProgress() {
   return (
-    <section className="surface progressPanel" aria-live="polite" aria-labelledby="progress-title">
-      <p className="label">Backtest</p>
-      <h2 id="progress-title">Running historical paper test</h2>
-      <div className="progressTrack">
+    <section className="backtestProgress" aria-live="polite" aria-labelledby="progress-title">
+      <div className="backtestProgressCopy">
+        <span className="backtestProgressIcon" aria-hidden="true">
+          <svg viewBox="0 0 20 20" width="18" height="18" fill="none">
+            <path d="M3.5 14.5 7.4 10l3 2.4 5.8-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M12.7 5.4h3.5v3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+        <div>
+          <h2 id="progress-title">Running backtest</h2>
+          <p>Testing your strategy against historical data…</p>
+        </div>
+      </div>
+      <div className="backtestProgressTrack" aria-hidden="true">
         <span />
       </div>
-      <p className="muted">Generating checked strategy code, loading daily data, and calculating per-ticker results.</p>
     </section>
   );
 }
 
 export function BacktestResults({ results }: { results: BacktestResultsView }) {
   return (
-    <section className="surface resultsPanel" aria-labelledby="results-title">
-      <div className="sectionHeader">
-        <div>
-          <p className="label">Historical paper-money output</p>
-          <h2 id="results-title">{results.strategySummary}</h2>
-        </div>
-        <StatusBadge state="confirmed" label="Complete" />
-      </div>
+    <section className="backtestSummaries" aria-label="Backtest results">
       {results.results.map((result) => (
-        <article className="tickerResult" key={result.ticker}>
-          <h3>{result.ticker}</h3>
-          <MetricsGrid metrics={result.headlineMetrics} featured />
-          <MetricsGrid metrics={result.metrics} />
-          <EquityCurve points={result.equityCurve} trades={result.trades} />
-          <TradeTable trades={result.trades} />
-        </article>
+        <BacktestResultSummary
+          result={result}
+          strategySummary={results.strategySummary}
+          generatedCode={results.generatedCode}
+          warnings={results.warnings}
+          key={result.ticker}
+        />
       ))}
-      {results.warnings.length > 0 ? (
-        <div className="warningList">
-          <strong>Disclosures</strong>
-          <ul>
-            {results.warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <GeneratedCodeDrawer code={results.generatedCode} />
     </section>
+  );
+}
+
+function BacktestResultSummary({
+  result,
+  strategySummary,
+  generatedCode,
+  warnings,
+}: {
+  result: TickerBacktestResult;
+  strategySummary: string;
+  generatedCode: string;
+  warnings: string[];
+}) {
+  const totalReturn = result.headlineMetrics.find((metric) => metric.label === "Total return");
+  const totalPnl = result.headlineMetrics.find((metric) => metric.label === "Total P&L");
+  const tradesId = `backtest-trades-${result.ticker.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`;
+
+  return (
+    <article className="backtestSummaryCard">
+      <div className="backtestSummaryHeader">
+        <div>
+          <p>Backtest result</p>
+          <h2>{result.ticker}</h2>
+        </div>
+        <span>{result.trades.length} trades</span>
+      </div>
+      <div className="backtestSummaryMetrics">
+        <div className={totalReturn?.tone ?? "neutral"}>
+          <span>Total return</span>
+          <strong>{totalReturn?.value ?? "—"}</strong>
+        </div>
+        <div className={totalPnl?.tone ?? "neutral"}>
+          <span>Total P&amp;L</span>
+          <strong>{totalPnl?.value ?? "—"}</strong>
+        </div>
+      </div>
+      <CompactEquityCurve points={result.equityCurve} ticker={result.ticker} />
+      <Dialog.Root>
+        <Dialog.Trigger className="resultDetailsButton">More details</Dialog.Trigger>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="resultsModalBackdrop" />
+          <Dialog.Viewport className="resultsModalViewport">
+            <Dialog.Popup className="resultsModalPopup">
+              <header className="resultsModalHeader">
+                <div>
+                  <Dialog.Title>{result.ticker}</Dialog.Title>
+                  <Dialog.Description className="resultsModalDescription">{strategySummary}</Dialog.Description>
+                </div>
+                <div className="resultsModalHeaderActions">
+                  <a className="resultsModalTradesLink" href={`#${tradesId}`}>View all {result.trades.length} trades</a>
+                  <Dialog.Close className="resultsModalClose" aria-label="Close backtest details">
+                    <CloseIcon />
+                  </Dialog.Close>
+                </div>
+              </header>
+              <div className="resultsModalBody">
+                <MetricsGrid metrics={result.headlineMetrics} featured />
+                <MetricsGrid metrics={result.metrics} />
+                <EquityCurve points={result.equityCurve} trades={result.trades} />
+                {warnings.length > 0 ? (
+                  <div className="warningList">
+                    <strong>Disclosures</strong>
+                    <ul>
+                      {warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                    </ul>
+                  </div>
+                ) : null}
+                <GeneratedCodeDrawer code={generatedCode} />
+                <section id={tradesId} className="resultsModalTrades" aria-label={`All ${result.trades.length} ${result.ticker} trades`}>
+                  <TradeTable trades={result.trades} />
+                </section>
+              </div>
+            </Dialog.Popup>
+          </Dialog.Viewport>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </article>
+  );
+}
+
+function CompactEquityCurve({ points, ticker }: { points: EquityPoint[]; ticker: string }) {
+  const chart = useMemo(() => buildChart(points, []), [points]);
+  if (!chart) return <p className="compactChartEmpty">No equity curve is available.</p>;
+
+  return (
+    <figure className="compactChart">
+      <svg viewBox="0 0 720 250" role="img" aria-label={`${ticker} account value over the backtest`} preserveAspectRatio="none">
+        <line x1="56" x2="688" y1="230" y2="230" />
+        <polyline points={chart.line} fill="none" />
+      </svg>
+      <figcaption>
+        <span>{formatDateShort(points[0].date)}</span>
+        <span>{formatDateShort(points[points.length - 1].date)}</span>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -446,11 +696,12 @@ export function EquityCurve({ points, trades }: { points: EquityPoint[]; trades:
   if (!chart) {
     return <p className="muted">No equity curve is available.</p>;
   }
+  const markerRadius = markerRadiusForCount(chart.markers.length);
 
   return (
     <figure className="chartFigure">
-      <figcaption>Equity curve with entry and exit markers</figcaption>
-      <svg viewBox="0 0 720 300" role="img" aria-labelledby="equity-title equity-desc" preserveAspectRatio="none">
+      <figcaption>Account equity</figcaption>
+      <svg viewBox="0 0 720 300" role="img" aria-labelledby="equity-title equity-desc" preserveAspectRatio="xMidYMid meet">
         <title id="equity-title">Paper account equity over time</title>
         <desc id="equity-desc">
           Equity starts at {formatMoney(points[0].equity)} and ends at {formatMoney(points[points.length - 1].equity)}.
@@ -462,7 +713,13 @@ export function EquityCurve({ points, trades }: { points: EquityPoint[]; trades:
         </g>
         <polyline points={chart.line} fill="none" className="equityLine" />
         {chart.markers.map((marker) => (
-          <circle className={marker.kind === "entry" ? "entryMarker" : "exitMarker"} cx={marker.x} cy={marker.y} r="5" key={`${marker.kind}-${marker.date}`} />
+          <circle
+            className={marker.kind === "entry" ? "entryMarker" : "exitMarker"}
+            cx={marker.x}
+            cy={marker.y}
+            r={markerRadius}
+            key={`${marker.kind}-${marker.date}`}
+          />
         ))}
         <text x="56" y="282">
           {formatDateShort(points[0].date)}
@@ -481,6 +738,13 @@ export function EquityCurve({ points, trades }: { points: EquityPoint[]; trades:
   );
 }
 
+export function markerRadiusForCount(markerCount: number): number {
+  if (markerCount > 120) return 2;
+  if (markerCount > 60) return 3;
+  if (markerCount > 24) return 4;
+  return 5;
+}
+
 export function TradeTable({ trades }: { trades: Trade[] }) {
   if (trades.length === 0) {
     return <p className="emptyState">No completed trades in this historical period.</p>;
@@ -489,7 +753,7 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   return (
     <div className="tableScroller">
       <table>
-        <caption>Complete trade list</caption>
+        <caption>All {trades.length} trades</caption>
         <thead>
           <tr>
             <th scope="col">Entry date</th>
@@ -534,37 +798,6 @@ export function GeneratedCodeDrawer({ code }: { code: string }) {
   );
 }
 
-export function DeployPanel({ deploy, onDeploy }: { deploy: DeployView; onDeploy?: () => void }) {
-  return (
-    <section className="surface compactSurface" aria-labelledby="deploy-title">
-      <p className="label">Simulated deployment</p>
-      <h2 id="deploy-title">Activation</h2>
-      {deploy.state === "active" ? (
-        <p className="bodyCopy">
-          Strategy {deploy.strategyId} is active for simulated checks. Next check:{" "}
-          <time dateTime={deploy.nextCheckAt}>{formatDateTime(deploy.nextCheckAt)}</time>.
-        </p>
-      ) : deploy.state === "error" ? (
-        <p className="errorText">{deploy.message}</p>
-      ) : (
-        <p className="bodyCopy">{deploy.helperText}</p>
-      )}
-      <button
-        type="button"
-        disabled={!onDeploy || deploy.state !== "idle" || deploy.disabled}
-        className="wideButton"
-        onClick={onDeploy}
-      >
-        {deploy.state === "loading" ? "Activating" : deploy.state === "active" ? "Simulated active" : "Activate simulation"}
-      </button>
-    </section>
-  );
-}
-
-export function StatusBadge({ state, label }: { state: FieldState; label: string }) {
-  return <span className={`statusBadge ${state}`}>{label}</span>;
-}
-
 function EmptyDraftPanel() {
   return (
     <section className="surface emptyState" aria-labelledby="empty-draft-title">
@@ -575,14 +808,30 @@ function EmptyDraftPanel() {
   );
 }
 
-function FailurePanel({ title, message, onRetry }: { title: string; message: string; onRetry?: () => void }) {
+function FailurePanel({ title, message }: { title: string; message: string }) {
   return (
     <section className="surface failurePanel" aria-labelledby="failure-title">
       <p className="label">Needs attention</p>
       <h2 id="failure-title">{title}</h2>
       <p>{message}</p>
-      <button type="button" disabled={!onRetry} onClick={onRetry}>Retry backtest</button>
     </section>
+  );
+}
+
+function PanelIcon({ side }: { side: "left" | "right" }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" width="20" height="20" fill="none">
+      <rect x="2.5" y="3" width="15" height="14" rx="2" stroke="currentColor" strokeWidth="1.4" />
+      <path d={side === "left" ? "M7 3.5v13" : "M13 3.5v13"} stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" width="20" height="20" fill="none">
+      <path d="m5 5 10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -637,15 +886,4 @@ function formatDate(value: string) {
 
 function formatDateShort(value: string) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(value));
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(value));
 }
