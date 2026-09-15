@@ -24,6 +24,7 @@ if _repository_env is not None:
 from app.backtest import run_independent_backtests
 from app.data_sources import (
     DataSourceError,
+    load_bls_signals,
     load_open_meteo_signal,
     load_yahoo_prices,
     load_yahoo_signal,
@@ -120,6 +121,12 @@ def backtest(
         "Fees and slippage are not included.",
         "Historical results do not predict future results.",
     ]
+    if request.strategy.version == "1.1" and any(
+        source.source == "bls" for source in request.strategy.signal.sources
+    ):
+        warnings.append(
+            "Monthly BLS observations use a conservative availability date to avoid look-ahead bias."
+        )
     generated_code = ""
 
     try:
@@ -245,12 +252,7 @@ def _validate_required_data_matches(
     signal = request.strategy.signal
     if request.strategy.version == "1.1":
         expected = {
-            source.key: {
-                "key": source.key,
-                "source": "yahoo",
-                "symbol": source.symbol,
-                "field": source.field,
-            }
+            source.key: source.model_dump(mode="json")
             for source in signal.sources
         }
         actual = {
@@ -260,7 +262,7 @@ def _validate_required_data_matches(
         }
         if len(actual) != len(required_data) or actual != expected:
             raise StrategyValidationError(
-                "Strategy requested sources outside the confirmed Yahoo signals."
+                "Strategy requested sources outside the confirmed signals."
             )
         return
 
@@ -294,8 +296,22 @@ def _load_data(request: BacktestRequest) -> dict[str, Any]:
     signal = request.strategy.signal
     prices = load_yahoo_prices(request.strategy.target_tickers, start, end)
     if request.strategy.version == "1.1":
+        yahoo_sources = [source for source in signal.sources if source.source == "yahoo"]
+        bls_sources = [source for source in signal.sources if source.source == "bls"]
+        signals: dict[str, list[dict[str, Any]]] = {}
+        if yahoo_sources:
+            signals.update(load_yahoo_signals(yahoo_sources, start, end))
+        if bls_sources:
+            signals.update(
+                load_bls_signals(
+                    bls_sources,
+                    start,
+                    end,
+                    registration_key=os.getenv("API_BLS_REGISTRATION_KEY"),
+                )
+            )
         return {
-            "signals": load_yahoo_signals(signal.sources, start, end),
+            "signals": signals,
             "prices": prices,
         }
     if signal.source == "yahoo":

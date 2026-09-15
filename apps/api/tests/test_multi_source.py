@@ -84,6 +84,16 @@ def _normalized_data() -> dict:
     }
 
 
+def _mixed_request_payload() -> dict:
+    payload = _request_payload()
+    payload["strategy"]["signal"]["sources"][1] = {
+        "key": "inflation",
+        "source": "bls",
+        "field": "inflation_yoy_percent",
+    }
+    return payload
+
+
 def test_version_11_accepts_multiple_sources_and_one_target():
     request = BacktestRequest.model_validate(_request_payload())
     assert request.strategy.version == "1.1"
@@ -102,8 +112,25 @@ def test_generation_instructions_include_exact_data_source_catalog():
     assert "`precipitation_sum`" in instructions
     assert "`temperature_2m_max`" in instructions
     assert "`temperature_2m_min`" in instructions
-    assert "Version 1.1 has 2-10 keyed signals" in instructions
-    assert "Do not request or invent FRED, BLS, inflation" in instructions
+    assert "Bureau of Labor Statistics (`source`: `bls`)" in instructions
+    assert "`cpi`, `inflation_yoy_percent`, and `unemployment_rate_percent`" in instructions
+    assert "Version 1.1 has 2-10 keyed Yahoo Finance and/or BLS signals" in instructions
+    assert "Do not request or invent FRED" in instructions
+
+
+def test_version_11_accepts_mixed_yahoo_and_bls_sources():
+    request = BacktestRequest.model_validate(_mixed_request_payload())
+
+    assert [source.source for source in request.strategy.signal.sources] == [
+        "yahoo",
+        "bls",
+    ]
+    assert request.strategy.signal.sources[1].field == "inflation_yoy_percent"
+
+    invalid = _mixed_request_payload()
+    invalid["strategy"]["signal"]["sources"][1]["field"] = "gdp"
+    with pytest.raises(ValidationError):
+        BacktestRequest.model_validate(invalid)
 
 
 def test_version_11_rejects_multiple_targets_or_duplicate_source_keys():
@@ -157,6 +184,26 @@ def test_multi_source_yahoo_loader_matches_real_multi_index_shape():
     }
 
 
+def test_yahoo_batch_loader_accepts_one_source_for_mixed_provider_strategy():
+    frame = pd.DataFrame(
+        {"Close": [4.25, 4.20], "Volume": [0, 0]},
+        index=pd.DatetimeIndex(["2024-01-02", "2024-01-03"], name="Date"),
+    )
+    result = load_yahoo_signals(
+        [_mixed_request_payload()["strategy"]["signal"]["sources"][0]],
+        "2024-01-02",
+        "2024-01-03",
+        download=lambda *args, **kwargs: frame,
+    )
+
+    assert result == {
+        "treasury_yield": [
+            {"date": "2024-01-02", "value": 4.25},
+            {"date": "2024-01-03", "value": 4.20},
+        ]
+    }
+
+
 def test_multi_source_fallback_requests_and_combines_all_sources():
     request = BacktestRequest.model_validate(_request_payload())
     source = build_fallback_source(request.strategy)
@@ -197,6 +244,39 @@ def test_main_loads_all_confirmed_yahoo_sources(monkeypatch):
 
     assert seen == {"targets": ["FICO"], "sources": ["^TNX", "SPY"]}
     assert data == _normalized_data()
+
+
+def test_main_loads_and_merges_yahoo_and_bls_sources(monkeypatch):
+    request = BacktestRequest.model_validate(_mixed_request_payload())
+    seen = {}
+
+    monkeypatch.setattr(
+        main,
+        "load_yahoo_prices",
+        lambda tickers, start, end: _normalized_data()["prices"],
+    )
+
+    def yahoo(sources, start, end):
+        seen["yahoo"] = [source.key for source in sources]
+        return {"treasury_yield": _normalized_data()["signals"]["treasury_yield"]}
+
+    def bls(sources, start, end, *, registration_key):
+        seen["bls"] = [source.key for source in sources]
+        seen["registration_key"] = registration_key
+        return {"inflation": _normalized_data()["signals"]["market"]}
+
+    monkeypatch.setattr(main, "load_yahoo_signals", yahoo)
+    monkeypatch.setattr(main, "load_bls_signals", bls)
+    monkeypatch.setenv("API_BLS_REGISTRATION_KEY", "registered")
+
+    data = main._load_data(request)
+
+    assert seen == {
+        "yahoo": ["treasury_yield"],
+        "bls": ["inflation"],
+        "registration_key": "registered",
+    }
+    assert set(data["signals"]) == {"treasury_yield", "inflation"}
 
 
 def test_multi_source_request_runs_through_backtest_endpoint(monkeypatch, tmp_path):

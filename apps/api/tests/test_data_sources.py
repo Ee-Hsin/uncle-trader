@@ -6,8 +6,10 @@ import pandas as pd
 import pytest
 
 from app.data_sources import (
+    BLS_TIMESERIES_URL,
     DataSourceError,
     OPEN_METEO_ARCHIVE_URL,
+    load_bls_signals,
     load_open_meteo_signal,
     load_yahoo_prices,
     load_yahoo_signal,
@@ -61,6 +63,10 @@ class FakeHttpClient:
         self.calls.append((url, params))
         return self.response
 
+    def post(self, url, *, json):
+        self.calls.append((url, json))
+        return self.response
+
 
 @pytest.fixture
 def open_meteo_payload():
@@ -85,6 +91,114 @@ def open_meteo_payload():
             "temperature_2m_min": [-4.0, -6.5, -5.25],
         },
     }
+
+
+@pytest.fixture
+def bls_payload():
+    def item(year, month, value):
+        return {
+            "year": str(year),
+            "period": f"M{month:02d}",
+            "periodName": "Month",
+            "value": str(value),
+            "footnotes": [{}],
+        }
+
+    return {
+        "status": "REQUEST_SUCCEEDED",
+        "responseTime": 100,
+        "message": [],
+        "Results": {
+            "series": [
+                {
+                    "seriesID": "CUSR0000SA0",
+                    "data": [item(2024, 2, 311), item(2024, 1, 310)],
+                },
+                {
+                    "seriesID": "CUUR0000SA0",
+                    "data": [
+                        item(2024, 2, 310.03),
+                        item(2024, 1, 309),
+                        item(2023, 2, 301),
+                        item(2023, 1, 300),
+                    ],
+                },
+                {
+                    "seriesID": "LNS14000000",
+                    "data": [item(2024, 2, 3.9), item(2024, 1, 3.7)],
+                },
+            ]
+        },
+    }
+
+
+def test_bls_loads_cpi_inflation_and_unemployment_without_a_key(bls_payload):
+    client = FakeHttpClient(bls_payload)
+    sources = [
+        {"key": "cpi", "source": "bls", "field": "cpi"},
+        {
+            "key": "inflation",
+            "source": "bls",
+            "field": "inflation_yoy_percent",
+        },
+        {
+            "key": "unemployment",
+            "source": "bls",
+            "field": "unemployment_rate_percent",
+        },
+    ]
+
+    rows = load_bls_signals(
+        sources, "2024-03-01", "2024-04-01", http_client=client
+    )
+
+    assert rows["cpi"] == [
+        {"date": "2024-03-01", "value": 310.0},
+        {"date": "2024-04-01", "value": 311.0},
+    ]
+    assert [row["date"] for row in rows["inflation"]] == [
+        "2024-03-01",
+        "2024-04-01",
+    ]
+    assert [row["value"] for row in rows["inflation"]] == pytest.approx([3.0, 3.0])
+    assert rows["unemployment"] == [
+        {"date": "2024-03-01", "value": 3.7},
+        {"date": "2024-04-01", "value": 3.9},
+    ]
+    assert client.calls == [
+        (
+            BLS_TIMESERIES_URL,
+            {
+                "seriesid": ["CUSR0000SA0", "CUUR0000SA0", "LNS14000000"],
+                "startyear": "2022",
+                "endyear": "2024",
+            },
+        )
+    ]
+
+
+def test_bls_uses_registered_limit_and_rejects_invalid_responses(bls_payload):
+    one_series_payload = deepcopy(bls_payload)
+    one_series_payload["Results"]["series"] = one_series_payload["Results"]["series"][:1]
+    client = FakeHttpClient(one_series_payload)
+    load_bls_signals(
+        [{"key": "cpi", "source": "bls", "field": "cpi"}],
+        "2024-03-01",
+        "2024-04-01",
+        http_client=client,
+        registration_key="test-key",
+    )
+    assert client.calls[0][1]["registrationkey"] == "test-key"
+
+    failed = deepcopy(one_series_payload)
+    failed["status"] = "REQUEST_FAILED"
+    with pytest.raises(DataSourceError, match="invalid response"):
+        load_bls_signals(
+            [{"key": "cpi", "source": "bls", "field": "cpi"}],
+            "2024-03-01",
+            "2024-04-01",
+            http_client=FakeHttpClient(failed),
+        )
 
 
 def test_yahoo_prices_normalize_realistic_single_symbol_frame():
@@ -286,3 +400,4 @@ def test_open_meteo_wraps_http_failure(open_meteo_payload):
 def test_adapters_reject_unsupported_fields(loader, kwargs):
     with pytest.raises(DataSourceError, match="Unsupported"):
         loader(start_date="2026-01-01", end_date="2026-01-03", **kwargs)
+    load_bls_signals,

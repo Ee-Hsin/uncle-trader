@@ -40,10 +40,16 @@ Available historical data sources are strictly limited to this catalog:
 - Open-Meteo historical weather (`source`: `open_meteo`) requires a confirmed
   location with name, latitude, longitude, and IANA timezone, and accepts only
   `precipitation_sum`, `temperature_2m_max`, and `temperature_2m_min`.
+- The U.S. Bureau of Labor Statistics (`source`: `bls`) accepts the monthly
+  fields `cpi`, `inflation_yoy_percent`, and `unemployment_rate_percent`. CPI is
+  the seasonally adjusted CPI-U all-items index; inflation is the backend-derived
+  12-month percentage change in unadjusted CPI-U; unemployment is the seasonally
+  adjusted civilian unemployment rate. BLS sources contain exactly key, source,
+  and field, with no symbol or location.
 Version 1.0 has exactly one signal and may use Yahoo Finance or Open-Meteo.
-Version 1.1 has 2-10 keyed signals, all of which must use Yahoo Finance, and
-exactly one traded target ticker. Do not request or invent FRED, BLS, inflation,
-unemployment, macroeconomic, fundamental, news, or any other provider or field.
+Version 1.1 has 2-10 keyed Yahoo Finance and/or BLS signals and exactly one
+traded target ticker. Do not request or invent FRED, other macroeconomic series,
+fundamental, news, or any other provider or field.
 The backend fetches the confirmed data; generated code must never download data.
 """
 
@@ -84,7 +90,8 @@ def _instructions_for_strategy(strategy_payload: Any) -> str:
 
 For a version 1.1 strategy, required_data() must return every confirmed
 signal.sources item as a dictionary containing exactly key, source, symbol, and
-field. generate_signals(data) must combine only the keyed normalized series in
+field for Yahoo, or exactly key, source, and field for BLS.
+generate_signals(data) must combine only the keyed normalized series in
 data["signals"][key]. Emit signals only for the single confirmed target ticker.
 Do not expect data["signal"] for version 1.1 strategies.
 """

@@ -24,6 +24,9 @@ API_OPENAI_API_KEY=... API_OPENAI_MODEL=... docker compose up --build
 `API_CORS_ORIGINS` accepts a comma-separated list of permitted local web origins
 and defaults to `http://localhost:3000`. `API_DATABASE_PATH` defaults to the
 container's persistent `/data/uncle_trading.db` path in Compose.
+`API_BLS_REGISTRATION_KEY` is optional. Without it, BLS macro signals use the
+public unregistered API limits; with it, the adapter uses registered 20-year
+request chunks.
 
 Stop the service with `docker compose --env-file ../../.env down`. The named volume is retained so
 SQLite data survives container replacement. Running `docker compose down -v`

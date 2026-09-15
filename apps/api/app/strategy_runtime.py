@@ -169,13 +169,19 @@ def _validate_required_data(value: Any) -> list[dict[str, Any]]:
         source = request.get("source")
         if not isinstance(key, str) or not key or key in keys:
             raise StrategyValidationError("Required-data keys must be unique and nonempty.")
-        if source not in {"yahoo", "open_meteo"}:
+        if source not in {"yahoo", "open_meteo", "bls"}:
             raise StrategyValidationError("The required-data request is invalid.")
         if source == "yahoo" and (
             not isinstance(request.get("symbol"), str)
             or request.get("field") not in {"close", "volume"}
         ):
             raise StrategyValidationError("The Yahoo required-data request is invalid.")
+        if source == "bls" and (
+            set(request) != {"key", "source", "field"}
+            or request.get("field")
+            not in {"cpi", "inflation_yoy_percent", "unemployment_rate_percent"}
+        ):
+            raise StrategyValidationError("The BLS required-data request is invalid.")
         keys.add(key)
     return value
 
@@ -203,15 +209,7 @@ def _validate_signals(value: Any) -> list[dict[str, str]]:
 def build_fallback_source(strategy: Any) -> str:
     signal = strategy.signal
     if hasattr(signal, "sources"):
-        requests = [
-            {
-                "key": source.key,
-                "source": "yahoo",
-                "symbol": source.symbol,
-                "field": source.field,
-            }
-            for source in signal.sources
-        ]
+        requests = [source.model_dump(mode="json") for source in signal.sources]
         keys = [source.key for source in signal.sources]
         ticker = strategy.target_tickers[0]
         direction = strategy.direction

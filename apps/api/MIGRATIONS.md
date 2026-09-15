@@ -4,14 +4,14 @@ This file records backend previews that require coordinated updates to the froze
 contracts and frontend before they become part of the shared public API. It does
 not replace `contracts/**`, which remains the source of truth.
 
-## Confirmed strategy 1.1: multiple Yahoo signal sources
+## Confirmed strategy 1.1: multiple Yahoo and BLS signal sources
 
 Status: **implemented as a backward-compatible backend preview; contract and
 frontend adoption are pending.**
 
 The existing version 1.0 request remains accepted without any field or behavior
 changes. Version 1.1 adds complex conditions backed by multiple Yahoo Finance
-series while restricting the strategy to one traded ticker.
+and/or BLS series while restricting the strategy to one traded ticker.
 
 ### Contract changes requiring Jordan's approval
 
@@ -21,11 +21,13 @@ series while restricting the strategy to one traded ticker.
 - Keep the outer `signal` field, its `rule`, and its `parameters`.
 - Replace the version 1.0 signal's single `source`, `symbol`, and `field` with a
   version 1.1 `sources` array containing 2–10 entries.
-- Each version 1.1 source has exactly `key`, `source`, `symbol`, and `field`.
+- Each Yahoo source has exactly `key`, `source`, `symbol`, and `field`.
+- Each BLS source has exactly `key`, `source`, and `field`; its field is `cpi`,
+  `inflation_yoy_percent`, or `unemployment_rate_percent`.
 - Require `key` to match `^[a-z][a-z0-9_]*$`, be 1–32 characters, and be unique
   within the strategy.
-- In this preview, `source` is always `"yahoo"` and `field` is `"close"` or
-  `"volume"`.
+- Yahoo fields are `close` and `volume`. BLS fields map to fixed, documented
+  national series so generated code cannot select arbitrary economic data.
 - Keep the existing backtest-response and deploy-response contracts unchanged.
 - Update the confirmed-strategy and backtest-request examples together with the
   schema, frontend types, and conversation output.
@@ -48,13 +50,12 @@ series while restricting the strategy to one traded ticker.
         "field": "close"
       },
       {
-        "key": "market",
-        "source": "yahoo",
-        "symbol": "SPY",
-        "field": "close"
+        "key": "inflation",
+        "source": "bls",
+        "field": "inflation_yoy_percent"
       }
     ],
-    "rule": "Enter when yields fall for three observations and SPY confirms the move.",
+    "rule": "Enter when yields and year-over-year inflation both fall.",
     "parameters": {
       "consecutive_observations": 3
     }
@@ -85,8 +86,8 @@ data["prices"][target_ticker]
 ```
 
 Each keyed signal is still a date-ascending list of `{ "date", "value" }`
-rows. Generated code must request exactly the confirmed keys, symbols, and
-fields. The trusted backend performs all yfinance calls.
+rows. Generated code must request exactly the confirmed keys and provider-specific
+fields. The trusted backend performs all Yahoo Finance and BLS calls.
 
 ### Fallback limitation
 

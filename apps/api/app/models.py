@@ -149,18 +149,28 @@ class YahooSignalSource(ContractModel):
     field: Literal["close", "volume"]
 
 
-class MultiSignal(ContractModel):
-    """A complex entry condition evaluated from multiple Yahoo series."""
+class BLSSignalSource(ContractModel):
+    """One keyed U.S. Bureau of Labor Statistics series in the 1.1 preview."""
 
-    sources: Annotated[list[YahooSignalSource], Field(min_length=2, max_length=10)]
+    key: SignalKey
+    source: Literal["bls"]
+    field: Literal["cpi", "inflation_yoy_percent", "unemployment_rate_percent"]
+
+
+class MultiSignal(ContractModel):
+    """A complex entry condition evaluated from multiple trusted series."""
+
+    sources: Annotated[
+        list[YahooSignalSource | BLSSignalSource], Field(min_length=2, max_length=10)
+    ]
     rule: NonBlankString
     parameters: dict[StrictStr, ParameterValue]
 
     @field_validator("sources")
     @classmethod
     def require_unique_source_keys(
-        cls, value: list[YahooSignalSource]
-    ) -> list[YahooSignalSource]:
+        cls, value: list[YahooSignalSource | BLSSignalSource]
+    ) -> list[YahooSignalSource | BLSSignalSource]:
         keys = [source.key for source in value]
         if len(keys) != len(set(keys)):
             raise ValueError("signal source keys must be unique")

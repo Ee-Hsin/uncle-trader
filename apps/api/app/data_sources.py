@@ -7,6 +7,7 @@ returned by these functions.
 
 from __future__ import annotations
 
+import calendar
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime, timedelta
 import math
@@ -14,7 +15,14 @@ from typing import Any
 
 
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+BLS_TIMESERIES_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 YAHOO_FIELDS = frozenset({"close", "volume"})
+BLS_FIELDS = frozenset({"cpi", "inflation_yoy_percent", "unemployment_rate_percent"})
+BLS_SERIES = {
+    "cpi": "CUSR0000SA0",
+    "inflation_yoy_percent": "CUUR0000SA0",
+    "unemployment_rate_percent": "LNS14000000",
+}
 OPEN_METEO_FIELDS = frozenset(
     {"precipitation_sum", "temperature_2m_max", "temperature_2m_min"}
 )
@@ -95,10 +103,10 @@ def load_yahoo_signals(
     *,
     download: Callable[..., Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Load multiple uniquely keyed Yahoo signal series in one provider request."""
+    """Load one or more uniquely keyed Yahoo signals in one provider request."""
 
-    if isinstance(sources, (str, bytes)) or len(sources) < 2:
-        raise DataSourceError("At least two Yahoo signal sources are required.")
+    if isinstance(sources, (str, bytes)) or not sources:
+        raise DataSourceError("At least one Yahoo signal source is required.")
     normalized_sources: list[tuple[str, str, str]] = []
     keys: set[str] = set()
     for source in sources:
@@ -122,6 +130,97 @@ def load_yahoo_signals(
         key: [{"date": row["date"], "value": row[field]} for row in histories[symbol]]
         for key, symbol, field in normalized_sources
     }
+
+
+def load_bls_signals(
+    sources: Sequence[Any],
+    start_date: date | str,
+    end_date: date | str,
+    *,
+    http_client: Any | None = None,
+    registration_key: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load keyed monthly CPI, inflation, and unemployment signals from BLS.
+
+    BLS observations describe reference months rather than publication instants.
+    To avoid exposing a value before it was known, each observation is dated on
+    the first day of the second following month. This is intentionally later than
+    the normal CPI and Employment Situation release windows.
+    """
+
+    if isinstance(sources, (str, bytes)) or not sources:
+        raise DataSourceError("At least one BLS signal source is required.")
+    start, end = _validate_date_range(start_date, end_date)
+    normalized_sources: list[tuple[str, str]] = []
+    keys: set[str] = set()
+    for source in sources:
+        key = _source_value(source, "key")
+        field = _source_value(source, "field")
+        if not isinstance(key, str) or not key.strip() or key in keys:
+            raise DataSourceError("BLS signal source keys must be unique and non-empty.")
+        if field not in BLS_FIELDS:
+            raise DataSourceError(f"Unsupported BLS field: {field}.")
+        keys.add(key)
+        normalized_sources.append((key, field))
+
+    owns_client = http_client is None
+    client = http_client
+    if client is None:
+        try:
+            import httpx
+        except ImportError as exc:  # pragma: no cover - deployment configuration
+            raise DataSourceError("The BLS HTTP client is unavailable.") from exc
+        client = httpx.Client(timeout=20.0)
+
+    # Inflation needs the prior 12 reference months, and all BLS values are shifted
+    # conservatively to an availability date after their reference month.
+    query_start_year = start.year - 2
+    series_ids = list(dict.fromkeys(BLS_SERIES[field] for _, field in normalized_sources))
+    raw_by_series: dict[str, dict[date, float]] = {series_id: {} for series_id in series_ids}
+    try:
+        for first_year, last_year in _bls_year_chunks(
+            query_start_year, end.year, registered=bool(registration_key)
+        ):
+            request_payload: dict[str, Any] = {
+                "seriesid": series_ids,
+                "startyear": str(first_year),
+                "endyear": str(last_year),
+            }
+            if registration_key:
+                request_payload["registrationkey"] = registration_key
+            response = client.post(BLS_TIMESERIES_URL, json=request_payload)
+            response.raise_for_status()
+            chunk = _normalize_bls_payload(response.json(), series_ids)
+            for series_id, values in chunk.items():
+                for reference_date, value in values.items():
+                    if reference_date in raw_by_series[series_id]:
+                        raise DataSourceError(
+                            f"BLS returned duplicate dates for {series_id}."
+                        )
+                    raw_by_series[series_id][reference_date] = value
+    except DataSourceError:
+        raise
+    except Exception as exc:
+        raise DataSourceError("BLS historical data could not be loaded.") from exc
+    finally:
+        if owns_client:
+            client.close()
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    for key, field in normalized_sources:
+        values = raw_by_series[BLS_SERIES[field]]
+        if field == "inflation_yoy_percent":
+            values = _year_over_year_percent(values)
+        rows = [
+            {"date": available.isoformat(), "value": value}
+            for reference_date, value in values.items()
+            if start <= (available := _conservative_bls_availability(reference_date)) <= end
+        ]
+        rows.sort(key=lambda row: row["date"])
+        if not rows:
+            raise DataSourceError(f"BLS returned no historical data for {field}.")
+        result[key] = rows
+    return result
 
 
 def load_open_meteo_signal(
@@ -190,6 +289,89 @@ def _source_value(source: Any, name: str) -> Any:
     if isinstance(source, Mapping):
         return source.get(name)
     return getattr(source, name, None)
+
+
+def _bls_year_chunks(
+    start_year: int, end_year: int, *, registered: bool
+) -> list[tuple[int, int]]:
+    span = 20 if registered else 10
+    chunks: list[tuple[int, int]] = []
+    current = start_year
+    while current <= end_year:
+        chunk_end = min(current + span - 1, end_year)
+        chunks.append((current, chunk_end))
+        current = chunk_end + 1
+    return chunks
+
+
+def _normalize_bls_payload(
+    payload: Any, expected_series: Sequence[str]
+) -> dict[str, dict[date, float]]:
+    if not isinstance(payload, Mapping) or payload.get("status") != "REQUEST_SUCCEEDED":
+        raise DataSourceError("BLS returned an invalid response.")
+    results = payload.get("Results")
+    series_items = results.get("series") if isinstance(results, Mapping) else None
+    if not isinstance(series_items, list):
+        raise DataSourceError("BLS response is missing series data.")
+
+    normalized: dict[str, dict[date, float]] = {}
+    for series in series_items:
+        if not isinstance(series, Mapping):
+            raise DataSourceError("BLS returned malformed series data.")
+        series_id = series.get("seriesID")
+        data = series.get("data")
+        if series_id not in expected_series or series_id in normalized or not isinstance(data, list):
+            raise DataSourceError("BLS returned unexpected series data.")
+        values: dict[date, float] = {}
+        for item in data:
+            if not isinstance(item, Mapping):
+                raise DataSourceError(f"BLS returned malformed data for {series_id}.")
+            year = item.get("year")
+            period = item.get("period")
+            if (
+                not isinstance(year, str)
+                or len(year) != 4
+                or not year.isdigit()
+                or not isinstance(period, str)
+                or len(period) != 3
+                or not period.startswith("M")
+                or not period[1:].isdigit()
+            ):
+                raise DataSourceError(f"BLS returned an invalid period for {series_id}.")
+            month = int(period[1:])
+            if not 1 <= month <= 12:
+                # M13 is an annual average, not a monthly observation.
+                continue
+            reference_date = date(int(year), month, 1)
+            if reference_date in values:
+                raise DataSourceError(f"BLS returned duplicate dates for {series_id}.")
+            values[reference_date] = _finite_number(
+                item.get("value"), f"BLS value for {series_id}"
+            )
+        normalized[series_id] = values
+
+    if set(normalized) != set(expected_series) or any(not values for values in normalized.values()):
+        raise DataSourceError("BLS returned incomplete historical data.")
+    return normalized
+
+
+def _year_over_year_percent(values: Mapping[date, float]) -> dict[date, float]:
+    result: dict[date, float] = {}
+    for reference_date, current in values.items():
+        previous = values.get(date(reference_date.year - 1, reference_date.month, 1))
+        if previous is not None:
+            if previous <= 0:
+                raise DataSourceError("BLS CPI data contains a non-positive value.")
+            result[reference_date] = (current / previous - 1.0) * 100.0
+    return result
+
+
+def _conservative_bls_availability(reference_date: date) -> date:
+    month_index = reference_date.year * 12 + reference_date.month - 1 + 2
+    year, zero_based_month = divmod(month_index, 12)
+    # calendar.monthrange also validates the generated year/month pair.
+    calendar.monthrange(year, zero_based_month + 1)
+    return date(year, zero_based_month + 1, 1)
 
 
 def _validate_symbols(tickers: Sequence[str]) -> list[str]:

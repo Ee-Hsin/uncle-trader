@@ -8,6 +8,7 @@ services:
     environment:
       API_OPENAI_API_KEY: "${API_OPENAI_API_KEY:-}"
       API_OPENAI_MODEL: "${API_OPENAI_MODEL:-}"
+      API_BLS_REGISTRATION_KEY: "${API_BLS_REGISTRATION_KEY:-}"
       API_DATABASE_PATH: /data/uncle_trading.db
       API_CORS_ORIGINS: "${API_CORS_ORIGINS:-http://localhost:3000}"
     volumes:

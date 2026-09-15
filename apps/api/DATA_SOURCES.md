@@ -46,6 +46,25 @@ The backend returns a data-unavailable error when Yahoo has no usable history.
   - `temperature_2m_min`
 - Signal rows contain `date` and the selected field normalized as `value`.
 
+## U.S. Bureau of Labor Statistics
+
+- Contract-preview value: `"source": "bls"`
+- Endpoint: BLS Public Data API v2
+- Authentication: optional `API_BLS_REGISTRATION_KEY`; unregistered requests work
+  within BLS's lower public limits
+- Frequency: normalized monthly rows
+- Supported signal fields:
+  - `cpi`: seasonally adjusted CPI-U, U.S. city average, all items
+    (`CUSR0000SA0`)
+  - `inflation_yoy_percent`: backend-calculated 12-month percentage change from
+    unadjusted CPI-U (`CUUR0000SA0`)
+  - `unemployment_rate_percent`: seasonally adjusted civilian unemployment rate
+    (`LNS14000000`)
+- BLS reference months do not contain exact publication timestamps. The backend
+  conservatively dates each value on the first day of the second following month,
+  after its normal release window, to prevent look-ahead in a trading backtest.
+- Signal rows contain the conservative availability `date` and selected value.
+
 ## Availability by Strategy Version
 
 ### Version 1.0
@@ -57,7 +76,7 @@ The backend returns a data-unavailable error when Yahoo has no usable history.
 ### Version 1.1 backend preview
 
 - Between 2 and 10 uniquely keyed signal sources.
-- Every signal source must use Yahoo Finance.
+- Signal sources may use Yahoo Finance and/or BLS.
 - Exactly one target ticker is traded.
 - Open-Meteo cannot currently be mixed into a version 1.1 strategy.
 
@@ -69,8 +88,7 @@ version 1.1 becomes part of the frozen frontend/backend contract.
 The backend does not currently provide:
 
 - FRED or St. Louis Fed data
-- BLS data
-- Direct inflation, CPI, unemployment, GDP, or interest-rate database series
+- Direct GDP or interest-rate database series
 - Company fundamentals, earnings, or financial statements
 - News, sentiment, social media, or analyst data
 - Intraday or real-time streaming data
