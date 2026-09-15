@@ -57,6 +57,20 @@ def _load_instructions() -> str:
     return _FALLBACK_INSTRUCTIONS
 
 
+def _instructions_for_strategy(strategy_payload: Any) -> str:
+    instructions = _load_instructions()
+    if isinstance(strategy_payload, dict) and strategy_payload.get("version") == "1.1":
+        instructions += """
+
+For a version 1.1 strategy, required_data() must return every confirmed
+signal.sources item as a dictionary containing exactly key, source, symbol, and
+field. generate_signals(data) must combine only the keyed normalized series in
+data["signals"][key]. Emit signals only for the single confirmed target ticker.
+Do not expect data["signal"] for version 1.1 strategies.
+"""
+    return instructions
+
+
 def generate_strategy(strategy: Any) -> GeneratedStrategy:
     api_key = os.getenv("API_OPENAI_API_KEY")
     model = os.getenv("API_OPENAI_MODEL")
@@ -79,7 +93,7 @@ def generate_strategy(strategy: Any) -> GeneratedStrategy:
             raise ValueError("The confirmed strategy is too large for generation.")
         response = client.responses.create(
             model=model,
-            instructions=_load_instructions(),
+            instructions=_instructions_for_strategy(strategy_payload),
             input=(
                 "Generate the Strategy class for this confirmed strategy:\n"
                 + strategy_json

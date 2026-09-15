@@ -14,7 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
+_module_path = Path(__file__).resolve()
+_repository_env = (
+    _module_path.parents[3] / ".env" if len(_module_path.parents) > 3 else None
+)
+if _repository_env is not None:
+    load_dotenv(_repository_env, override=False)
 
 from app.backtest import run_independent_backtests
 from app.data_sources import (
@@ -22,6 +27,7 @@ from app.data_sources import (
     load_open_meteo_signal,
     load_yahoo_prices,
     load_yahoo_signal,
+    load_yahoo_signals,
 )
 from app.generator import GenerationError, generate_strategy
 from app.models import (
@@ -209,11 +215,7 @@ def deploy_strategy(
 
 def _fixture_check(source: str, request: BacktestRequest) -> None:
     dates = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
-    data = {
-        "signal": [
-            {"date": item_date, "value": value}
-            for item_date, value in zip(dates, [4.3, 4.2, 4.1, 4.0])
-        ],
+    data: dict[str, Any] = {
         "prices": {
             ticker: [
                 {"date": item_date, "close": 100.0 + index, "volume": 1000.0}
@@ -222,6 +224,17 @@ def _fixture_check(source: str, request: BacktestRequest) -> None:
             for ticker in request.strategy.target_tickers
         },
     }
+    fixture_rows = [
+        {"date": item_date, "value": value}
+        for item_date, value in zip(dates, [4.3, 4.2, 4.1, 4.0])
+    ]
+    if request.strategy.version == "1.1":
+        data["signals"] = {
+            signal_source.key: list(fixture_rows)
+            for signal_source in request.strategy.signal.sources
+        }
+    else:
+        data["signal"] = fixture_rows
     output = execute_strategy(source, data, timeout_seconds=1.0)
     _validate_required_data_matches(output.required_data, request)
 
@@ -229,10 +242,31 @@ def _fixture_check(source: str, request: BacktestRequest) -> None:
 def _validate_required_data_matches(
     required_data: list[dict[str, Any]], request: BacktestRequest
 ) -> None:
+    signal = request.strategy.signal
+    if request.strategy.version == "1.1":
+        expected = {
+            source.key: {
+                "key": source.key,
+                "source": "yahoo",
+                "symbol": source.symbol,
+                "field": source.field,
+            }
+            for source in signal.sources
+        }
+        actual = {
+            item.get("key"): item
+            for item in required_data
+            if isinstance(item.get("key"), str)
+        }
+        if len(actual) != len(required_data) or actual != expected:
+            raise StrategyValidationError(
+                "Strategy requested sources outside the confirmed Yahoo signals."
+            )
+        return
+
     if len(required_data) != 1:
         raise StrategyValidationError("Strategy must request exactly one signal series.")
     required = required_data[0]
-    signal = request.strategy.signal
     if required.get("source") != signal.source or required.get("field") != signal.field:
         raise StrategyValidationError("Strategy requested data outside the confirmed signal.")
     if signal.source == "yahoo" and required.get("symbol") != signal.symbol:
@@ -259,6 +293,11 @@ def _load_data(request: BacktestRequest) -> dict[str, Any]:
     end = request.backtest.end_date
     signal = request.strategy.signal
     prices = load_yahoo_prices(request.strategy.target_tickers, start, end)
+    if request.strategy.version == "1.1":
+        return {
+            "signals": load_yahoo_signals(signal.sources, start, end),
+            "prices": prices,
+        }
     if signal.source == "yahoo":
         signal_rows = load_yahoo_signal(signal.symbol, signal.field, start, end)
     else:
