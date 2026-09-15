@@ -1,0 +1,294 @@
+"""Trusted historical-data adapters.
+
+Provider-specific responses are converted here before generated strategy code sees
+them.  The rest of the application should consume only the normalized dictionaries
+returned by these functions.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+from datetime import date, datetime, timedelta
+import math
+from typing import Any
+
+
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+YAHOO_FIELDS = frozenset({"close", "volume"})
+OPEN_METEO_FIELDS = frozenset(
+    {"precipitation_sum", "temperature_2m_max", "temperature_2m_min"}
+)
+
+
+class DataSourceError(RuntimeError):
+    """A user-safe failure while obtaining or normalizing historical data."""
+
+
+def load_yahoo_prices(
+    tickers: Sequence[str],
+    start_date: date | str,
+    end_date: date | str,
+    *,
+    download: Callable[..., Any] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load adjusted daily close and volume rows for each target ticker.
+
+    ``yfinance.download`` treats ``end`` as exclusive, so one day is added to the
+    confirmed inclusive backtest end date.
+    """
+
+    symbols = _validate_symbols(tickers)
+    start, end = _validate_date_range(start_date, end_date)
+    provider_download = download or _yfinance_download()
+    query: str | list[str] = symbols[0] if len(symbols) == 1 else symbols
+
+    try:
+        frame = provider_download(
+            query,
+            start=start.isoformat(),
+            end=(end + timedelta(days=1)).isoformat(),
+            auto_adjust=True,
+            actions=False,
+            progress=False,
+            group_by="column",
+            threads=False,
+        )
+    except Exception as exc:
+        raise DataSourceError("Yahoo Finance data could not be loaded.") from exc
+
+    if frame is None or not hasattr(frame, "empty") or frame.empty:
+        raise DataSourceError("Yahoo Finance returned no historical data.")
+    if not hasattr(frame, "columns") or not hasattr(frame, "index"):
+        raise DataSourceError("Yahoo Finance returned an invalid response.")
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    for symbol in symbols:
+        close_series = _yahoo_series(frame, symbol, "Close", len(symbols))
+        volume_series = _yahoo_series(frame, symbol, "Volume", len(symbols))
+        rows = _normalize_yahoo_rows(frame.index, close_series, volume_series, symbol)
+        if not rows:
+            raise DataSourceError(f"Yahoo Finance returned no data for {symbol}.")
+        result[symbol] = rows
+    return result
+
+
+def load_yahoo_signal(
+    symbol: str,
+    field: str,
+    start_date: date | str,
+    end_date: date | str,
+    *,
+    download: Callable[..., Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Load a Yahoo signal independently of the target ticker data."""
+
+    if field not in YAHOO_FIELDS:
+        raise DataSourceError(f"Unsupported Yahoo field: {field}.")
+    rows = load_yahoo_prices([symbol], start_date, end_date, download=download)[symbol]
+    return [{"date": row["date"], "value": row[field]} for row in rows]
+
+
+def load_open_meteo_signal(
+    *,
+    latitude: float,
+    longitude: float,
+    timezone: str,
+    field: str,
+    start_date: date | str,
+    end_date: date | str,
+    http_client: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Load one daily signal from Open-Meteo's historical archive API."""
+
+    if field not in OPEN_METEO_FIELDS:
+        raise DataSourceError(f"Unsupported Open-Meteo field: {field}.")
+    latitude_value = _finite_number(latitude, "latitude")
+    longitude_value = _finite_number(longitude, "longitude")
+    if not -90 <= latitude_value <= 90:
+        raise DataSourceError("Open-Meteo latitude must be between -90 and 90.")
+    if not -180 <= longitude_value <= 180:
+        raise DataSourceError("Open-Meteo longitude must be between -180 and 180.")
+    if not isinstance(timezone, str) or not timezone.strip():
+        raise DataSourceError("Open-Meteo timezone must be provided.")
+    start, end = _validate_date_range(start_date, end_date)
+
+    owns_client = http_client is None
+    client = http_client
+    if client is None:
+        try:
+            import httpx
+        except ImportError as exc:  # pragma: no cover - deployment configuration
+            raise DataSourceError("The Open-Meteo HTTP client is unavailable.") from exc
+        client = httpx.Client(timeout=20.0)
+
+    params = {
+        "latitude": latitude_value,
+        "longitude": longitude_value,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "daily": field,
+        "timezone": timezone,
+    }
+    try:
+        response = client.get(OPEN_METEO_ARCHIVE_URL, params=params)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        raise DataSourceError("Open-Meteo historical data could not be loaded.") from exc
+    finally:
+        if owns_client:
+            client.close()
+
+    return _normalize_open_meteo_payload(payload, field)
+
+
+def _yfinance_download() -> Callable[..., Any]:
+    try:
+        import yfinance
+    except ImportError as exc:  # pragma: no cover - deployment configuration
+        raise DataSourceError("The Yahoo Finance client is unavailable.") from exc
+    return yfinance.download
+
+
+def _validate_symbols(tickers: Sequence[str]) -> list[str]:
+    if isinstance(tickers, (str, bytes)) or not tickers:
+        raise DataSourceError("At least one Yahoo Finance symbol is required.")
+    symbols: list[str] = []
+    for ticker in tickers:
+        if not isinstance(ticker, str) or not ticker.strip():
+            raise DataSourceError("Yahoo Finance symbols must be non-empty strings.")
+        symbol = ticker.strip()
+        if symbol in symbols:
+            raise DataSourceError(f"Duplicate Yahoo Finance symbol: {symbol}.")
+        symbols.append(symbol)
+    return symbols
+
+
+def _validate_date_range(
+    start_value: date | str, end_value: date | str
+) -> tuple[date, date]:
+    start = _parse_date(start_value, "start_date")
+    end = _parse_date(end_value, "end_date")
+    if start > end:
+        raise DataSourceError("The historical-data start date must not follow the end date.")
+    return start, end
+
+
+def _parse_date(value: date | str, name: str) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError as exc:
+            raise DataSourceError(f"{name} must be a valid YYYY-MM-DD date.") from exc
+        if parsed.isoformat() == value:
+            return parsed
+    raise DataSourceError(f"{name} must be a valid YYYY-MM-DD date.")
+
+
+def _yahoo_series(frame: Any, symbol: str, field: str, symbol_count: int) -> Any:
+    columns = frame.columns
+    if getattr(columns, "nlevels", 1) > 1:
+        candidates = ((field, symbol), (symbol, field))
+        if field == "Close":
+            candidates += (("Adj Close", symbol), (symbol, "Adj Close"))
+        for candidate in candidates:
+            if candidate in columns:
+                return frame[candidate]
+        raise DataSourceError(f"Yahoo Finance data for {symbol} is missing {field}.")
+
+    if symbol_count != 1:
+        raise DataSourceError("Yahoo Finance returned an invalid multi-symbol response.")
+    candidates = [field]
+    if field == "Close":
+        candidates.append("Adj Close")
+    for candidate in candidates:
+        if candidate in columns:
+            return frame[candidate]
+    raise DataSourceError(f"Yahoo Finance data for {symbol} is missing {field}.")
+
+
+def _normalize_yahoo_rows(
+    index: Any, close_series: Any, volume_series: Any, symbol: str
+) -> list[dict[str, Any]]:
+    if len(index) != len(close_series) or len(index) != len(volume_series):
+        raise DataSourceError(f"Yahoo Finance returned malformed data for {symbol}.")
+
+    normalized: list[dict[str, Any]] = []
+    seen_dates: set[str] = set()
+    for raw_date, raw_close, raw_volume in zip(index, close_series, volume_series):
+        row_date = _provider_date(raw_date, "Yahoo Finance")
+        if row_date in seen_dates:
+            raise DataSourceError(f"Yahoo Finance returned duplicate dates for {symbol}.")
+        close = _finite_number(raw_close, f"Yahoo Finance close for {symbol}")
+        volume = _finite_number(raw_volume, f"Yahoo Finance volume for {symbol}")
+        if close <= 0:
+            raise DataSourceError(f"Yahoo Finance returned a non-positive close for {symbol}.")
+        if volume < 0:
+            raise DataSourceError(f"Yahoo Finance returned a negative volume for {symbol}.")
+        normalized.append(
+            {
+                "date": row_date,
+                "close": close,
+                "volume": int(volume) if volume.is_integer() else volume,
+            }
+        )
+        seen_dates.add(row_date)
+    normalized.sort(key=lambda row: row["date"])
+    return normalized
+
+
+def _normalize_open_meteo_payload(payload: Any, field: str) -> list[dict[str, Any]]:
+    if not isinstance(payload, Mapping):
+        raise DataSourceError("Open-Meteo returned an invalid response.")
+    daily = payload.get("daily")
+    if not isinstance(daily, Mapping):
+        raise DataSourceError("Open-Meteo response is missing daily data.")
+    dates = daily.get("time")
+    values = daily.get(field)
+    if not isinstance(dates, list) or not isinstance(values, list):
+        raise DataSourceError(f"Open-Meteo response is missing {field} data.")
+    if not dates or not values:
+        raise DataSourceError("Open-Meteo returned no historical data.")
+    if len(dates) != len(values):
+        raise DataSourceError("Open-Meteo returned mismatched daily arrays.")
+
+    normalized: list[dict[str, Any]] = []
+    seen_dates: set[str] = set()
+    for raw_date, raw_value in zip(dates, values):
+        row_date = _parse_date(raw_date, "Open-Meteo date").isoformat()
+        if row_date in seen_dates:
+            raise DataSourceError("Open-Meteo returned duplicate daily dates.")
+        value = _finite_number(raw_value, f"Open-Meteo {field}")
+        normalized.append({"date": row_date, "value": value})
+        seen_dates.add(row_date)
+    normalized.sort(key=lambda row: row["date"])
+    return normalized
+
+
+def _provider_date(value: Any, provider: str) -> str:
+    if hasattr(value, "date"):
+        value = value.date()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10]).isoformat()
+        except ValueError:
+            pass
+    raise DataSourceError(f"{provider} returned an invalid date.")
+
+
+def _finite_number(value: Any, name: str) -> float:
+    if value is None or isinstance(value, bool):
+        raise DataSourceError(f"{name} contains a missing or invalid value.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise DataSourceError(f"{name} contains a missing or invalid value.") from exc
+    if not math.isfinite(number):
+        raise DataSourceError(f"{name} contains a missing or invalid value.")
+    return number

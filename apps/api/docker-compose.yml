@@ -1,0 +1,29 @@
+services:
+  api:
+    build:
+      context: .
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      API_OPENAI_API_KEY: "${API_OPENAI_API_KEY:-}"
+      API_OPENAI_MODEL: "${API_OPENAI_MODEL:-}"
+      API_DATABASE_PATH: /data/uncle_trading.db
+      API_CORS_ORIGINS: "${API_CORS_ORIGINS:-http://localhost:3000}"
+    volumes:
+      - api-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/health', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  api-data:
