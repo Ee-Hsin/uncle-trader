@@ -1,12 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { StrategyRecord } from "./types";
 
 export function StrategyDetail({ strategy }: { strategy: StrategyRecord }) {
   const [openGraph, setOpenGraph] = useState<"pnl" | "equity" | null>(null);
+  const [backendStrategy, setBackendStrategy] = useState<StrategyRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
+  const displayStrategy = backendStrategy ?? strategy;
+
+  useEffect(() => {
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+    let cancelled = false;
+
+    fetch(`${apiBase}/strategies/${strategy.id}`)
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || payload.status !== "complete") {
+          throw new Error("Strategy data could not be loaded.");
+        }
+        return payload;
+      })
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        const result = payload.results[0];
+        const startingEquity = result.equity_curve[0]?.equity ?? 0;
+        setBackendStrategy({
+          ...strategy,
+          name: payload.strategy_summary,
+          returnPercent: result.metrics.total_return_percent,
+          pnl: result.metrics.total_pnl,
+          lastRun: result.equity_curve[result.equity_curve.length - 1].date,
+          equityCurve: result.equity_curve,
+          pnlCurve: result.equity_curve.map((point: { date: string; equity: number }) => ({
+            date: point.date,
+            value: point.equity - startingEquity,
+          })),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBackendUnavailable(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [strategy]);
 
   return (
     <main className="detailPage">
@@ -14,16 +65,16 @@ export function StrategyDetail({ strategy }: { strategy: StrategyRecord }) {
       <header className="detailHeader">
         <div>
           <p className="eyebrow">Paper strategy / {strategy.ticker}</p>
-          <h1>{strategy.name}</h1>
-          <p className="detailSummary">{strategy.summary}</p>
+          <h1>{displayStrategy.name}</h1>
+          <p className="detailSummary">{displayStrategy.summary}</p>
         </div>
-        <span className="strategyStatus">Paper trading</span>
+        <span className="strategyStatus">{backendUnavailable ? "Preview data" : "Paper trading"}</span>
       </header>
 
       <section className="detailMetrics" aria-label="Strategy performance">
-        <Metric label="Total return" value={`+${strategy.returnPercent.toFixed(1)}%`} positive />
-        <Metric label="Total P&L" value={`+$${strategy.pnl.toLocaleString("en-US")}`} positive />
-        <Metric label="Last run" value={strategy.lastRun} />
+        <Metric label="Total return" value={`+${displayStrategy.returnPercent.toFixed(1)}%`} positive />
+        <Metric label="Total P&L" value={`+$${displayStrategy.pnl.toLocaleString("en-US")}`} positive />
+        <Metric label="Last run" value={displayStrategy.lastRun} />
       </section>
 
       <section className="graphList" aria-label="Strategy graphs">
@@ -31,17 +82,19 @@ export function StrategyDetail({ strategy }: { strategy: StrategyRecord }) {
           title="P&L over time"
           description="Cumulative paper profit and loss"
           open={openGraph === "pnl"}
+          loading={loading}
           onToggle={() => setOpenGraph(openGraph === "pnl" ? null : "pnl")}
         >
-          <LineChart points={strategy.pnlCurve} kind="pnl" />
+          <LineChart points={displayStrategy.pnlCurve} kind="pnl" />
         </GraphDisclosure>
         <GraphDisclosure
           title="Account equity"
           description="Paper account value from a $10,000 starting balance"
           open={openGraph === "equity"}
+          loading={loading}
           onToggle={() => setOpenGraph(openGraph === "equity" ? null : "equity")}
         >
-          <LineChart points={strategy.equityCurve} kind="equity" />
+          <LineChart points={displayStrategy.equityCurve} kind="equity" />
         </GraphDisclosure>
       </section>
 
@@ -63,12 +116,14 @@ function GraphDisclosure({
   title,
   description,
   open,
+  loading,
   onToggle,
   children,
 }: {
   title: string;
   description: string;
   open: boolean;
+  loading: boolean;
   onToggle: () => void;
   children: ReactNode;
 }) {
@@ -81,8 +136,17 @@ function GraphDisclosure({
         </span>
         <span className="graphToggleIcon" aria-hidden="true">{open ? "−" : "+"}</span>
       </button>
-      {open ? <div className="graphContent">{children}</div> : null}
+      {open ? <div className="graphContent">{loading ? <GraphLoading /> : children}</div> : null}
     </section>
+  );
+}
+
+function GraphLoading() {
+  return (
+    <div className="graphLoading" role="status" aria-label="Loading graph data">
+      <span className="graphLoadingLine" />
+      <span className="graphLoadingLine short" />
+    </div>
   );
 }
 

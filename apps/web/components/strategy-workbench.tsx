@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import type {
   BacktestResultsView,
@@ -64,94 +64,57 @@ const starterProps: StrategyWorkbenchProps = {
 
 export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const view = { ...starterProps, ...props };
-  const [composerOpen, setComposerOpen] = useState(false);
   const [ideaDraft, setIdeaDraft] = useState(view.idea);
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
   const ready = view.stage === "ready";
 
-  useEffect(() => {
-    if (!composerOpen) {
-      setIdeaDraft(view.idea);
-    }
-  }, [composerOpen, view.idea]);
-
-  useEffect(() => {
-    if (!composerOpen) {
-      return;
-    }
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setComposerOpen(false);
-      }
-    };
-
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [composerOpen]);
-
   if (view.layout !== "workflow") {
     return (
-      <section className="dashboard" aria-label="Trading strategies">
-        <header className="dashboardHeader">
-          <div>
+      <section className="chatHome" aria-label="Uncle Trading workspace">
+        <aside className="strategySidebar" aria-label="Past trading strategies">
+          <div className="sidebarBrand">
             <p className="eyebrow">Uncle Trading</p>
-            <h1>Strategies</h1>
+            <span className="sidebarTitle">Workspace</span>
           </div>
-          <button type="button" onClick={() => setComposerOpen(true)}>
-            <span aria-hidden="true">+</span> Add strategy
+          <button type="button" className="newStrategyButton" onClick={() => setIdeaDraft("")}>
+            <span aria-hidden="true">+</span> New strategy
           </button>
-        </header>
-        <section className="dashboardEmpty" aria-labelledby="empty-dashboard-title">
-          <p className="label">Your strategies</p>
-          <h2 id="empty-dashboard-title">Build, test, repeat.</h2>
-          <p>Open a strategy to review its paper performance, or add a new idea to your workspace.</p>
+          <div className="sidebarSection">
+            <p className="sidebarLabel">Past strategies</p>
+            <nav aria-label="Saved trading strategies">
+              {strategies.map((strategy) => (
+                <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
+                  <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
+                  <span className="sidebarStrategyCopy">
+                    <strong>{strategy.name}</strong>
+                    <small>{strategy.ticker} · {strategy.lastRun}</small>
+                  </span>
+                </Link>
+              ))}
+            </nav>
+          </div>
+          <p className="sidebarNote">Historical results are paper-money simulations.</p>
+        </aside>
+        <section className="chatHomeMain" aria-labelledby="chat-home-title">
+          <header className="chatHomeHeader">
+            <p className="eyebrow">New strategy</p>
+            <h1 id="chat-home-title">What would you like to test?</h1>
+            <p>Describe your trading idea in plain language. Uncle will turn it into a strategy you can review and backtest.</p>
+          </header>
+          <StrategyChat
+            messages={view.messages}
+            idea={ideaDraft}
+            stage={view.stage}
+            illustrative={view.illustrative}
+            onIdeaChange={setIdeaDraft}
+            onContinue={() => undefined}
+          />
+          <div className="chatSuggestions" aria-label="Example strategy ideas">
+            <button type="button" onClick={() => setIdeaDraft("Buy an ETF when its 20-day moving average crosses above its 50-day moving average.")}>Moving average crossover</button>
+            <button type="button" onClick={() => setIdeaDraft("Buy a stock after three consecutive down days and hold it for five trading days.")}>Three-day pullback</button>
+          </div>
         </section>
-        <div className="strategyList" aria-label="Strategies">
-          {strategies.map((strategy) => (
-            <Link className="strategyRow" href={`/strategies/${strategy.id}`} key={strategy.id}>
-              <span className="strategyRowMain">
-                <span className="strategyTicker">{strategy.ticker}</span>
-                <span>
-                  <strong>{strategy.name}</strong>
-                  <small>{strategy.summary}</small>
-                </span>
-              </span>
-              <span className="strategyRowStats">
-                <span className="positiveText">+{strategy.returnPercent.toFixed(1)}%</span>
-                <small>Paper return</small>
-              </span>
-              <span className="strategyRowArrow" aria-hidden="true">→</span>
-            </Link>
-          ))}
-        </div>
-        {composerOpen ? (
-          <>
-            <button type="button" className="drawerBackdrop" aria-label="Close add strategy panel" onClick={() => setComposerOpen(false)} />
-            <aside className="composerDrawer" aria-label="Add strategy" aria-modal="true">
-              <div className="drawerHeader">
-                <div>
-                  <p className="label">New strategy</p>
-                  <h2>Add a trading strategy</h2>
-                </div>
-                <button type="button" className="iconButton" aria-label="Close add strategy panel" onClick={() => setComposerOpen(false)}>
-                  <span aria-hidden="true">×</span>
-                </button>
-              </div>
-              <StrategyChat
-                messages={view.messages}
-                idea={ideaDraft}
-                stage={view.stage}
-                illustrative={view.illustrative}
-                onIdeaChange={setIdeaDraft}
-                onContinue={() => setComposerOpen(false)}
-                compact
-              />
-              {view.draft ? <StrategyDraftPanel draft={view.draft} missingFields={view.missingFields ?? []} /> : null}
-            </aside>
-          </>
-        ) : null}
       </section>
     );
   }
