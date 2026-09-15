@@ -1,10 +1,12 @@
 import {
   ContractValidationError,
+  type BlsSignalField,
   type BacktestRequest,
   type Direction,
   type SignalField,
   type SignalParameter,
   type SignalSource,
+  type YahooSignalField,
   parseBacktestRequest,
 } from "./contracts";
 
@@ -51,9 +53,16 @@ export interface DraftParameters {
   comparison_window_days: number | null;
 }
 
+export interface DraftKeyedSignalSource {
+  key: string | null;
+  source: "yahoo" | "bls" | null;
+  symbol: string | null;
+  field: YahooSignalField | BlsSignalField | null;
+}
+
 export interface ConversationDraft {
   strategy: {
-    version: "1.0" | null;
+    version: "1.0" | "1.1" | "1.2" | null;
     name: string | null;
     thesis: string | null;
     target_tickers: string[] | null;
@@ -63,12 +72,16 @@ export interface ConversationDraft {
       symbol: string | null;
       field: SignalField | null;
       location: DraftLocation | null;
+      sources: DraftKeyedSignalSource[] | null;
       rule: string | null;
       parameters: DraftParameters;
     };
     execution: {
-      entry_timing: "next_trading_day_close" | null;
+      entry_timing: "next_trading_day_close" | "next_trading_bar_close" | null;
       holding_period_days: number | null;
+      bar_interval: "1h" | null;
+      session: "regular" | null;
+      holding_period_bars: number | null;
       allocation_percent: number | null;
       ignore_overlapping_signals: true | null;
     };
@@ -96,22 +109,31 @@ export const DEFAULT_CONFIRMED_FIELD_PATHS = [
   "strategy.signal.parameters.observation_frequency",
 ] as const;
 
-const COMMON_REQUIRED_PATHS = [
+const BASE_REQUIRED_PATHS = [
   "strategy.version",
   "strategy.name",
   "strategy.thesis",
   "strategy.target_tickers",
   "strategy.direction",
-  "strategy.signal.source",
-  "strategy.signal.field",
   "strategy.signal.rule",
-  "strategy.execution.entry_timing",
-  "strategy.execution.holding_period_days",
   "strategy.execution.allocation_percent",
   "strategy.execution.ignore_overlapping_signals",
   "backtest.start_date",
   "backtest.end_date",
   "backtest.initial_capital",
+] as const;
+
+const DAILY_EXECUTION_PATHS = [
+  "strategy.execution.entry_timing",
+  "strategy.execution.holding_period_days",
+] as const;
+
+const INTRADAY_PATHS = [
+  "strategy.signal.sources",
+  "strategy.execution.entry_timing",
+  "strategy.execution.bar_interval",
+  "strategy.execution.session",
+  "strategy.execution.holding_period_bars",
 ] as const;
 
 const LOCATION_PATHS = [
@@ -130,9 +152,13 @@ const PARAMETER_PATHS = [
 ] as const;
 
 const DRAFT_FIELD_PATHS = [
-  ...COMMON_REQUIRED_PATHS,
+  ...BASE_REQUIRED_PATHS,
+  ...DAILY_EXECUTION_PATHS,
+  ...INTRADAY_PATHS,
   ...LOCATION_PATHS,
   ...PARAMETER_PATHS,
+  "strategy.signal.source",
+  "strategy.signal.field",
   "strategy.signal.symbol",
 ] as const;
 
@@ -161,7 +187,7 @@ export const conversationTurnSchema: Record<string, unknown> = {
           additionalProperties: false,
           required: ["version", "name", "thesis", "target_tickers", "direction", "signal", "execution"],
           properties: {
-            version: { enum: ["1.0", null] },
+            version: { enum: ["1.0", "1.1", "1.2", null] },
             name: { type: ["string", "null"] },
             thesis: { type: ["string", "null"] },
             target_tickers: {
@@ -174,7 +200,7 @@ export const conversationTurnSchema: Record<string, unknown> = {
             signal: {
               type: "object",
               additionalProperties: false,
-              required: ["source", "symbol", "field", "location", "rule", "parameters"],
+              required: ["source", "symbol", "field", "location", "sources", "rule", "parameters"],
               properties: {
                 source: { enum: ["yahoo", "open_meteo", null] },
                 symbol: { type: ["string", "null"] },
@@ -192,6 +218,27 @@ export const conversationTurnSchema: Record<string, unknown> = {
                         latitude: { type: ["number", "null"] },
                         longitude: { type: ["number", "null"] },
                         timezone: { type: ["string", "null"] },
+                      },
+                    },
+                    { type: "null" },
+                  ],
+                },
+                sources: {
+                  anyOf: [
+                    {
+                      type: "array",
+                      minItems: 1,
+                      maxItems: 10,
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["key", "source", "symbol", "field"],
+                        properties: {
+                          key: { type: ["string", "null"] },
+                          source: { enum: ["yahoo", "bls", null] },
+                          symbol: { type: ["string", "null"] },
+                          field: { enum: ["close", "volume", "cpi", "inflation_yoy_percent", "unemployment_rate_percent", null] },
+                        },
                       },
                     },
                     { type: "null" },
@@ -221,10 +268,13 @@ export const conversationTurnSchema: Record<string, unknown> = {
             execution: {
               type: "object",
               additionalProperties: false,
-              required: ["entry_timing", "holding_period_days", "allocation_percent", "ignore_overlapping_signals"],
+              required: ["entry_timing", "holding_period_days", "bar_interval", "session", "holding_period_bars", "allocation_percent", "ignore_overlapping_signals"],
               properties: {
-                entry_timing: { enum: ["next_trading_day_close", null] },
+                entry_timing: { enum: ["next_trading_day_close", "next_trading_bar_close", null] },
                 holding_period_days: { type: ["integer", "null"] },
+                bar_interval: { enum: ["1h", null] },
+                session: { enum: ["regular", null] },
+                holding_period_bars: { type: ["integer", "null"] },
                 allocation_percent: { type: ["number", "null"] },
                 ignore_overlapping_signals: { enum: [true, null] },
               },
@@ -263,6 +313,7 @@ export function createEmptyDraft(): ConversationDraft {
         symbol: null,
         field: null,
         location: null,
+        sources: null,
         rule: null,
         parameters: {
           threshold: null,
@@ -275,6 +326,9 @@ export function createEmptyDraft(): ConversationDraft {
       execution: {
         entry_timing: "next_trading_day_close",
         holding_period_days: null,
+        bar_interval: null,
+        session: null,
+        holding_period_bars: null,
         allocation_percent: null,
         ignore_overlapping_signals: true,
       },
@@ -320,9 +374,17 @@ export function isConversationDraft(value: unknown): value is ConversationDraft 
   const execution = strategy.execution;
   if (
     !isObject(signal) ||
-    !exactKeys(signal, ["source", "symbol", "field", "location", "rule", "parameters"]) ||
+    !exactKeys(signal, ["source", "symbol", "field", "location", "sources", "rule", "parameters"]) ||
     !isObject(execution) ||
-    !exactKeys(execution, ["entry_timing", "holding_period_days", "allocation_percent", "ignore_overlapping_signals"])
+    !exactKeys(execution, [
+      "entry_timing",
+      "holding_period_days",
+      "bar_interval",
+      "session",
+      "holding_period_bars",
+      "allocation_percent",
+      "ignore_overlapping_signals",
+    ])
   ) {
     return false;
   }
@@ -348,8 +410,26 @@ export function isConversationDraft(value: unknown): value is ConversationDraft 
       nullableNumber(location.latitude) &&
       nullableNumber(location.longitude) &&
       nullableString(location.timezone));
+  const sourcesValid = signal.sources === null || (
+    Array.isArray(signal.sources) &&
+    signal.sources.length >= 1 &&
+    signal.sources.length <= 10 &&
+    signal.sources.every((source) =>
+      isObject(source) &&
+      exactKeys(source, ["key", "source", "symbol", "field"]) &&
+      nullableString(source.key) &&
+      (source.source === null || source.source === "yahoo" || source.source === "bls") &&
+      nullableString(source.symbol) &&
+      (source.field === null ||
+        source.field === "close" ||
+        source.field === "volume" ||
+        source.field === "cpi" ||
+        source.field === "inflation_yoy_percent" ||
+        source.field === "unemployment_rate_percent")
+    )
+  );
   return (
-    (strategy.version === "1.0" || strategy.version === null) &&
+    (strategy.version === "1.0" || strategy.version === "1.1" || strategy.version === "1.2" || strategy.version === null) &&
     nullableString(strategy.name) &&
     nullableString(strategy.thesis) &&
     (strategy.target_tickers === null ||
@@ -364,6 +444,7 @@ export function isConversationDraft(value: unknown): value is ConversationDraft 
       signal.field === "temperature_2m_max" ||
       signal.field === "temperature_2m_min") &&
     locationValid &&
+    sourcesValid &&
     nullableString(signal.rule) &&
     (parameters.threshold === null ||
       typeof parameters.threshold === "string" ||
@@ -373,8 +454,11 @@ export function isConversationDraft(value: unknown): value is ConversationDraft 
     nullableInteger(parameters.lookback_days) &&
     nullableString(parameters.observation_frequency) &&
     nullableInteger(parameters.comparison_window_days) &&
-    (execution.entry_timing === null || execution.entry_timing === "next_trading_day_close") &&
+    (execution.entry_timing === null || execution.entry_timing === "next_trading_day_close" || execution.entry_timing === "next_trading_bar_close") &&
     nullableInteger(execution.holding_period_days) &&
+    (execution.bar_interval === null || execution.bar_interval === "1h") &&
+    (execution.session === null || execution.session === "regular") &&
+    nullableInteger(execution.holding_period_bars) &&
     nullableNumber(execution.allocation_percent) &&
     (execution.ignore_overlapping_signals === null || execution.ignore_overlapping_signals === true) &&
     nullableString(backtest.start_date) &&
@@ -415,9 +499,14 @@ export function parseConversationTurn(value: unknown): ConversationTurn {
 }
 
 export function requiredDraftPaths(draft: ConversationDraft): string[] {
-  if (draft.strategy.signal.source === "yahoo") return [...COMMON_REQUIRED_PATHS, "strategy.signal.symbol"];
-  if (draft.strategy.signal.source === "open_meteo") return [...COMMON_REQUIRED_PATHS, ...LOCATION_PATHS];
-  return [...COMMON_REQUIRED_PATHS];
+  if (draft.strategy.version === "1.2") return [...BASE_REQUIRED_PATHS, ...INTRADAY_PATHS];
+  if (draft.strategy.version === "1.1") {
+    return [...BASE_REQUIRED_PATHS, "strategy.signal.sources", ...DAILY_EXECUTION_PATHS];
+  }
+  const paths = [...BASE_REQUIRED_PATHS, "strategy.signal.source", "strategy.signal.field", ...DAILY_EXECUTION_PATHS];
+  if (draft.strategy.signal.source === "yahoo") return [...paths, "strategy.signal.symbol"];
+  if (draft.strategy.signal.source === "open_meteo") return [...paths, ...LOCATION_PATHS];
+  return paths;
 }
 
 export function readDraftPath(draft: ConversationDraft, path: string): unknown {
@@ -471,6 +560,45 @@ export function draftFromBacktestRequest(request: BacktestRequest): Conversation
     const value = request.strategy.signal.parameters[key];
     if (value !== undefined) parameters[key] = value as never;
   }
+  const signal = request.strategy.version === "1.0"
+    ? {
+        source: request.strategy.signal.source,
+        symbol: request.strategy.signal.symbol ?? null,
+        field: request.strategy.signal.field,
+        location: request.strategy.signal.location ?? null,
+        sources: null,
+      }
+    : {
+        source: null,
+        symbol: null,
+        field: null,
+        location: null,
+        sources: request.strategy.signal.sources.map((source) => ({
+          key: source.key,
+          source: source.source,
+          symbol: source.source === "yahoo" ? source.symbol : null,
+          field: source.field,
+        })),
+      };
+  const execution = request.strategy.version === "1.2"
+    ? {
+        entry_timing: request.strategy.execution.entry_timing,
+        holding_period_days: null,
+        bar_interval: request.strategy.execution.bar_interval,
+        session: request.strategy.execution.session,
+        holding_period_bars: request.strategy.execution.holding_period_bars,
+        allocation_percent: request.strategy.execution.allocation_percent,
+        ignore_overlapping_signals: request.strategy.execution.ignore_overlapping_signals,
+      }
+    : {
+        entry_timing: request.strategy.execution.entry_timing,
+        holding_period_days: request.strategy.execution.holding_period_days,
+        bar_interval: null,
+        session: null,
+        holding_period_bars: null,
+        allocation_percent: request.strategy.execution.allocation_percent,
+        ignore_overlapping_signals: request.strategy.execution.ignore_overlapping_signals,
+      };
   return {
     strategy: {
       version: request.strategy.version,
@@ -479,14 +607,11 @@ export function draftFromBacktestRequest(request: BacktestRequest): Conversation
       target_tickers: request.strategy.target_tickers,
       direction: request.strategy.direction,
       signal: {
-        source: request.strategy.signal.source,
-        symbol: request.strategy.signal.symbol ?? null,
-        field: request.strategy.signal.field,
-        location: request.strategy.signal.location ?? null,
+        ...signal,
         rule: request.strategy.signal.rule,
         parameters,
       },
-      execution: request.strategy.execution,
+      execution,
     },
     backtest: request.backtest,
   };
@@ -497,8 +622,15 @@ export function backtestRequestFromDraft(draft: ConversationDraft): BacktestRequ
   const parameters = Object.fromEntries(
     Object.entries(strategy.signal.parameters).filter((entry): entry is [string, SignalParameter] => entry[1] !== null),
   );
-  const signal =
-    strategy.signal.source === "yahoo"
+  const signal = strategy.version === "1.1" || strategy.version === "1.2"
+    ? {
+        sources: strategy.signal.sources?.map((source) => source.source === "yahoo"
+          ? { key: source.key, source: "yahoo" as const, symbol: source.symbol, field: source.field }
+          : { key: source.key, source: "bls" as const, field: source.field }),
+        rule: strategy.signal.rule,
+        parameters,
+      }
+    : strategy.signal.source === "yahoo"
       ? {
           source: "yahoo" as const,
           symbol: strategy.signal.symbol,
@@ -513,6 +645,21 @@ export function backtestRequestFromDraft(draft: ConversationDraft): BacktestRequ
           rule: strategy.signal.rule,
           parameters,
         };
+  const execution = strategy.version === "1.2"
+    ? {
+        bar_interval: strategy.execution.bar_interval,
+        session: strategy.execution.session,
+        entry_timing: strategy.execution.entry_timing,
+        holding_period_bars: strategy.execution.holding_period_bars,
+        allocation_percent: strategy.execution.allocation_percent,
+        ignore_overlapping_signals: strategy.execution.ignore_overlapping_signals,
+      }
+    : {
+        entry_timing: strategy.execution.entry_timing,
+        holding_period_days: strategy.execution.holding_period_days,
+        allocation_percent: strategy.execution.allocation_percent,
+        ignore_overlapping_signals: strategy.execution.ignore_overlapping_signals,
+      };
   return parseBacktestRequest({
     strategy: {
       version: strategy.version,
@@ -521,7 +668,7 @@ export function backtestRequestFromDraft(draft: ConversationDraft): BacktestRequ
       target_tickers: strategy.target_tickers,
       direction: strategy.direction,
       signal,
-      execution: strategy.execution,
+      execution,
     },
     backtest,
   });

@@ -9,8 +9,8 @@ version combination not listed here is unsupported and must not be invented.
 - Contract value: `"source": "yahoo"`
 - Client: `yfinance`
 - Authentication: none
-- Frequency: normalized daily rows, plus regular-session hourly rows for the
-  version 1.2 backend preview
+- Frequency: normalized daily rows, plus regular-session hourly rows for version
+  1.2
 - Inclusive backtest range: the backend adjusts yfinance's exclusive end date
 - Supported signal fields:
   - `close`: auto-adjusted daily closing price
@@ -74,14 +74,14 @@ The backend returns a data-unavailable error when Yahoo has no usable history.
 - The signal may use Yahoo Finance or Open-Meteo.
 - Target ticker prices always come from Yahoo Finance.
 
-### Version 1.1 backend preview
+### Version 1.1
 
-- Between 2 and 10 uniquely keyed signal sources.
+- Between 1 and 10 uniquely keyed signal sources.
 - Signal sources may use Yahoo Finance and/or BLS.
 - Exactly one target ticker is traded.
 - Open-Meteo cannot currently be mixed into a version 1.1 strategy.
 
-### Version 1.2 backend preview
+### Version 1.2
 
 - Between 1 and 10 uniquely keyed Yahoo Finance signal sources.
 - One-hour bars only.
@@ -93,8 +93,8 @@ The backend returns a data-unavailable error when Yahoo has no usable history.
   and holidays without executing outside the regular session.
 - Yahoo limits 1-hour history to a recent 730-day window.
 
-See `MIGRATIONS.md` for the pending shared-contract changes required before
-version 1.1 becomes part of the frozen frontend/backend contract.
+The local integration worktree includes the matching frozen contract and
+frontend support for versions 1.1 and 1.2. Promotion to `main` is pending.
 
 ## Explicitly Unavailable
 

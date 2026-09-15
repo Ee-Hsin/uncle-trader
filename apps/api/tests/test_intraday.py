@@ -121,7 +121,7 @@ def test_version_12_contract_accepts_hourly_shape_and_rejects_daily_or_night_opt
         BacktestRequest.model_validate(multiple_targets)
 
 
-def test_version_12_accepts_one_source_but_version_11_still_requires_two():
+def test_versions_11_and_12_accept_one_source():
     payload = _request_payload()
     payload["strategy"]["signal"]["sources"] = payload["strategy"]["signal"]["sources"][:1]
     BacktestRequest.model_validate(payload)
@@ -133,8 +133,7 @@ def test_version_12_accepts_one_source_but_version_11_still_requires_two():
         "allocation_percent": 20,
         "ignore_overlapping_signals": True,
     }
-    with pytest.raises(ValidationError, match="2-10 daily"):
-        BacktestRequest.model_validate(payload)
+    BacktestRequest.model_validate(payload)
 
 
 def test_version_12_enforces_source_and_holding_boundaries():

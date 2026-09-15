@@ -33,7 +33,10 @@ def _validate(example_name: str, schema_name: str) -> None:
 
 def test_frozen_examples_validate_against_frozen_schemas():
     _validate("backtest-request.example.json", "backtest-request.schema.json")
+    _validate("backtest-request-multi-source.example.json", "backtest-request.schema.json")
+    _validate("backtest-request-hourly.example.json", "backtest-request.schema.json")
     _validate("backtest-response.example.json", "backtest-response.schema.json")
+    _validate("backtest-response-hourly.example.json", "backtest-response.schema.json")
     _validate("backtest-error.example.json", "backtest-response.schema.json")
     _validate("deploy-response.example.json", "deploy-response.schema.json")
 
@@ -45,3 +48,20 @@ def test_schema_rejects_partial_success_as_error_substitute():
     invalid["status"] = "error"
     validator = Draft202012Validator(schemas["backtest-response.schema.json"], registry=registry)
     assert not validator.is_valid(invalid)
+
+
+def test_version_11_schema_accepts_one_bls_source():
+    schemas, registry = _schemas()
+    request = json.loads(
+        (CONTRACTS / "backtest-request-multi-source.example.json").read_text()
+    )
+    request["strategy"]["signal"]["sources"] = [
+        request["strategy"]["signal"]["sources"][1]
+    ]
+    validator = Draft202012Validator(
+        schemas["backtest-request.schema.json"],
+        registry=registry,
+        format_checker=FormatChecker(),
+    )
+
+    validator.validate(request)

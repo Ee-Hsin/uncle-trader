@@ -15,6 +15,9 @@ import {
   backtestRequestFixture,
   backtestResponseFixture,
   deployResponseFixture,
+  hourlyBacktestRequestFixture,
+  hourlyBacktestResponseFixture,
+  multiSourceBacktestRequestFixture,
 } from "./fixtures";
 import { mapBacktestForDisplay, mapDeployForDisplay } from "./presentation";
 
@@ -27,6 +30,37 @@ test("the frozen request and response fixtures pass runtime validation", () => {
   assert.equal(parseBacktestResponse(backtestResponseFixture).status, "complete");
   assert.equal(parseBacktestResponse(backtestErrorFixture).status, "error");
   assert.equal(parseDeployResponse(deployResponseFixture).status, "active");
+  assert.equal(isBacktestRequest(hourlyBacktestRequestFixture), true);
+  assert.equal(parseBacktestResponse(hourlyBacktestResponseFixture).status, "complete");
+  assert.equal(isBacktestRequest(multiSourceBacktestRequestFixture), true);
+});
+
+test("an hourly draft round-trips through the version 1.2 contract", () => {
+  const draft = draftFromBacktestRequest(hourlyBacktestRequestFixture);
+  const acceptedPaths = populatedDraftPaths(draft);
+
+  assert.equal(draft.strategy.version, "1.2");
+  assert.equal(draft.strategy.signal.sources?.length, 2);
+  assert.equal(draft.strategy.execution.holding_period_bars, 14);
+  assert.deepEqual(confirmedBacktestRequestFromDraft(draft, acceptedPaths), hourlyBacktestRequestFixture);
+});
+
+test("a multi-source draft round-trips through the version 1.1 contract", () => {
+  const draft = draftFromBacktestRequest(multiSourceBacktestRequestFixture);
+  const acceptedPaths = populatedDraftPaths(draft);
+
+  assert.equal(draft.strategy.version, "1.1");
+  assert.equal(draft.strategy.signal.sources?.[1].source, "bls");
+  assert.deepEqual(confirmedBacktestRequestFromDraft(draft, acceptedPaths), multiSourceBacktestRequestFixture);
+});
+
+test("version 1.1 accepts one BLS signal", () => {
+  const request = structuredClone(multiSourceBacktestRequestFixture);
+  assert.equal(request.strategy.version, "1.1");
+  if (request.strategy.version !== "1.1") assert.fail("Expected a version 1.1 fixture.");
+  request.strategy.signal.sources = [request.strategy.signal.sources[1]];
+
+  assert.equal(isBacktestRequest(request), true);
 });
 
 test("missing and proposed values cannot produce a confirmed request", () => {

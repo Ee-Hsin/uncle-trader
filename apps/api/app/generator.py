@@ -47,7 +47,7 @@ Available historical data sources are strictly limited to this catalog:
   adjusted civilian unemployment rate. BLS sources contain exactly key, source,
   and field, with no symbol or location.
 Version 1.0 has exactly one signal and may use Yahoo Finance or Open-Meteo.
-Version 1.1 has 2-10 keyed Yahoo Finance and/or BLS signals and exactly one
+Version 1.1 has 1-10 keyed Yahoo Finance and/or BLS signals and exactly one
 traded target ticker. Version 1.2 has 1-10 keyed Yahoo Finance
 signals using `1h` regular-session bars and exactly one traded target ticker.
 Do not request or invent FRED, other macroeconomic series, fundamental, news,
@@ -95,7 +95,10 @@ For a version 1.1 strategy, required_data() must return every confirmed
 signal.sources item as a dictionary containing exactly key, source, symbol, and
 field for Yahoo, or exactly key, source, and field for BLS.
 generate_signals(data) must combine only the keyed normalized series in
-data["signals"][key]. Emit signals only for the single confirmed target ticker.
+data["signals"][key]. Each normalized signal row contains exactly `date` and
+`value`; never read a provider field name or `timestamp` from a row. Return
+signals containing exactly `ticker`, `signal_date`, and `direction`, using the
+row's `date` as `signal_date`. Emit signals only for the single confirmed target ticker.
 Do not expect data["signal"] for version 1.1 strategies.
 """
     if version == "1.2":
@@ -105,7 +108,10 @@ For version 1.2, required_data() must return every confirmed signal.sources
 item as a dictionary containing exactly key, source, symbol, and field.
 generate_signals(data) must combine only the keyed normalized series in
 data["signals"][key]. Emit signals only for the confirmed target ticker.
-Do not expect data["signal"]. Every row date is an ISO 8601 UTC hourly-bar
+Each normalized signal row contains exactly `date` and `value`; never read a
+provider field name or `timestamp` from a row. Return signals containing exactly
+`ticker`, `signal_date`, and `direction`, using the row's `date` as
+`signal_date`. Do not expect data["signal"]. Every row date is an ISO 8601 UTC hourly-bar
 timestamp ending in Z. Return signal_date using that exact timestamp.
 Data contains only regular US trading-session bars.
 Never synthesize pre-market, after-hours, overnight, or weekend bars.

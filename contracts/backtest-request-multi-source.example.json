@@ -1,0 +1,40 @@
+{
+  "strategy": {
+    "version": "1.1",
+    "name": "FICO with falling yields and inflation",
+    "thesis": "Falling yields and inflation can support FICO valuation.",
+    "target_tickers": ["FICO"],
+    "direction": "long",
+    "signal": {
+      "sources": [
+        {
+          "key": "treasury_yield",
+          "source": "yahoo",
+          "symbol": "^TNX",
+          "field": "close"
+        },
+        {
+          "key": "inflation",
+          "source": "bls",
+          "field": "inflation_yoy_percent"
+        }
+      ],
+      "rule": "Enter when Treasury yields and year-over-year inflation both fall.",
+      "parameters": {
+        "consecutive_observations": 3,
+        "observation_frequency": "daily"
+      }
+    },
+    "execution": {
+      "entry_timing": "next_trading_day_close",
+      "holding_period_days": 5,
+      "allocation_percent": 20,
+      "ignore_overlapping_signals": true
+    }
+  },
+  "backtest": {
+    "start_date": "2020-01-01",
+    "end_date": "2025-12-31",
+    "initial_capital": 10000
+  }
+}

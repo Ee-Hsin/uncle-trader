@@ -417,6 +417,8 @@ def _normalize_bls_payload(
         for item in data:
             if not isinstance(item, Mapping):
                 raise DataSourceError(f"BLS returned malformed data for {series_id}.")
+            if _is_bls_unavailable_observation(item):
+                continue
             year = item.get("year")
             period = item.get("period")
             if (
@@ -444,6 +446,16 @@ def _normalize_bls_payload(
     if set(normalized) != set(expected_series) or any(not values for values in normalized.values()):
         raise DataSourceError("BLS returned incomplete historical data.")
     return normalized
+
+
+def _is_bls_unavailable_observation(item: Mapping[str, Any]) -> bool:
+    if item.get("value") != "-":
+        return False
+    footnotes = item.get("footnotes")
+    return isinstance(footnotes, list) and any(
+        isinstance(footnote, Mapping) and footnote.get("code") == "X"
+        for footnote in footnotes
+    )
 
 
 def _year_over_year_percent(values: Mapping[date, float]) -> dict[date, float]:

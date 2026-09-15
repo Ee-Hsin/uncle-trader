@@ -177,6 +177,52 @@ def test_bls_loads_cpi_inflation_and_unemployment_without_a_key(bls_payload):
     ]
 
 
+def test_bls_skips_observations_explicitly_marked_unavailable(bls_payload):
+    unavailable = {
+        "year": "2025",
+        "period": "M10",
+        "periodName": "October",
+        "value": "-",
+        "footnotes": [
+            {
+                "code": "X",
+                "text": "Data unavailable due to the 2025 lapse in appropriations",
+            }
+        ],
+    }
+    cpi_series = bls_payload["Results"]["series"][1]
+    cpi_series["data"].append(unavailable)
+    bls_payload["Results"]["series"] = [cpi_series]
+    client = FakeHttpClient(bls_payload)
+
+    rows = load_bls_signals(
+        [{"key": "inflation", "source": "bls", "field": "inflation_yoy_percent"}],
+        "2024-03-01",
+        "2026-01-01",
+        http_client=client,
+    )
+
+    assert [row["date"] for row in rows["inflation"]] == [
+        "2024-03-01",
+        "2024-04-01",
+    ]
+    assert [row["value"] for row in rows["inflation"]] == pytest.approx([3.0, 3.0])
+
+
+def test_bls_still_rejects_unrecognized_non_numeric_values(bls_payload):
+    cpi_series = bls_payload["Results"]["series"][1]
+    cpi_series["data"][0]["value"] = "not-a-number"
+    bls_payload["Results"]["series"] = [cpi_series]
+
+    with pytest.raises(DataSourceError, match="missing or invalid value"):
+        load_bls_signals(
+            [{"key": "inflation", "source": "bls", "field": "inflation_yoy_percent"}],
+            "2024-03-01",
+            "2024-04-01",
+            http_client=FakeHttpClient(bls_payload),
+        )
+
+
 def test_bls_uses_registered_limit_and_rejects_invalid_responses(bls_payload):
     one_series_payload = deepcopy(bls_payload)
     one_series_payload["Results"]["series"] = one_series_payload["Results"]["series"][:1]

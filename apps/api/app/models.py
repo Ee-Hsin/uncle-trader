@@ -226,10 +226,9 @@ class ConfirmedStrategy(ContractModel):
         if self.version == "1.1":
             if (
                 not isinstance(self.signal, MultiSignal)
-                or len(self.signal.sources) < 2
                 or not isinstance(self.execution, Execution)
             ):
-                raise ValueError("version 1.1 requires 2-10 daily signal.sources")
+                raise ValueError("version 1.1 requires 1-10 daily signal.sources")
             if len(self.target_tickers) != 1:
                 raise ValueError("version 1.1 requires exactly one target ticker")
         if self.version == "1.2":
@@ -277,7 +276,10 @@ ErrorCode = Literal[
 class ErrorObject(ContractModel):
     code: ErrorCode
     message: NonBlankString
-    details: dict[StrictStr, DetailValue] | None = None
+    details: dict[StrictStr, DetailValue] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
     @field_validator("details", mode="before")
     @classmethod

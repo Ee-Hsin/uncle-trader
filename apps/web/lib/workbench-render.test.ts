@@ -6,7 +6,7 @@ import { StrategyDetail, strategyRecordFromResponse } from "../components/strate
 import { strategies } from "../components/strategy-data";
 import { StrategyWorkbench, markerRadiusForCount } from "../components/strategy-workbench";
 import { draftFromBacktestRequest } from "./conversation";
-import { backtestRequestFixture, backtestResponseFixture } from "./fixtures";
+import { backtestRequestFixture, backtestResponseFixture, hourlyBacktestRequestFixture } from "./fixtures";
 import { mapBacktestForDisplay, mapDraftForDisplay } from "./presentation";
 
 const messages = [
@@ -70,6 +70,29 @@ test("the new shell preserves draft editing and backtest actions", () => {
   assert.doesNotMatch(html, /Proposed|Ready|In progress/);
   assert.equal((html.match(/aria-label="Hide strategy history"/g) ?? []).length, 1);
   assert.doesNotMatch(html, /aria-label="Show strategy history"/);
+});
+
+test("the strategy inspector exposes hourly version 1.2 fields", () => {
+  const draft = mapDraftForDisplay(draftFromBacktestRequest(hourlyBacktestRequestFixture), () => "confirmed");
+  const html = renderToStaticMarkup(
+    createElement(StrategyWorkbench, {
+      stage: "ready",
+      idea: "",
+      messages,
+      draft,
+      hasDraft: true,
+      missingFields: [],
+      onIdeaChange: () => undefined,
+      onSubmitIdea: () => undefined,
+      onFieldChange: () => undefined,
+      onRunBacktest: () => undefined,
+    }),
+  );
+
+  assert.match(html, /Hourly Yahoo signals/);
+  assert.match(html, /market: SPY close/);
+  assert.match(html, /Holding period, hourly bars/);
+  assert.match(html, /value="14"/);
 });
 
 test("chat loading appears as an assistant response", () => {

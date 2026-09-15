@@ -15,7 +15,7 @@
   ],
   "properties": {
     "version": {
-      "const": "1.0",
+      "enum": ["1.0", "1.1", "1.2"],
       "description": "The confirmed-strategy contract version."
     },
     "name": {
@@ -47,12 +47,49 @@
       "description": "The position direction used when the entry condition is true."
     },
     "signal": {
-      "$ref": "#/$defs/signal"
+      "oneOf": [
+        { "$ref": "#/$defs/singleSignal" },
+        { "$ref": "#/$defs/multiSignal" }
+      ]
     },
     "execution": {
-      "$ref": "#/$defs/execution"
+      "oneOf": [
+        { "$ref": "#/$defs/dailyExecution" },
+        { "$ref": "#/$defs/intradayExecution" }
+      ]
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "version": { "const": "1.0" } }, "required": ["version"] },
+      "then": {
+        "properties": {
+          "signal": { "$ref": "#/$defs/singleSignal" },
+          "execution": { "$ref": "#/$defs/dailyExecution" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "version": { "const": "1.1" } }, "required": ["version"] },
+      "then": {
+        "properties": {
+          "target_tickers": { "minItems": 1, "maxItems": 1 },
+          "signal": { "$ref": "#/$defs/dailyMultiSignal" },
+          "execution": { "$ref": "#/$defs/dailyExecution" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "version": { "const": "1.2" } }, "required": ["version"] },
+      "then": {
+        "properties": {
+          "target_tickers": { "minItems": 1, "maxItems": 1 },
+          "signal": { "$ref": "#/$defs/intradayMultiSignal" },
+          "execution": { "$ref": "#/$defs/intradayExecution" }
+        }
+      }
+    }
+  ],
   "$defs": {
     "location": {
       "type": "object",
@@ -85,7 +122,7 @@
         }
       }
     },
-    "signal": {
+    "singleSignal": {
       "type": "object",
       "additionalProperties": false,
       "required": ["source", "field", "rule", "parameters"],
@@ -171,7 +208,7 @@
         }
       ]
     },
-    "execution": {
+    "dailyExecution": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -202,7 +239,84 @@
           "description": "Ignore new signals while a position in the same independent backtest is open."
         }
       }
+    },
+    "keyedYahooSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "source", "symbol", "field"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z][a-z0-9_]*$" },
+        "source": { "const": "yahoo" },
+        "symbol": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "\\S" },
+        "field": { "enum": ["close", "volume"] }
+      }
+    },
+    "keyedBlsSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "source", "field"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z][a-z0-9_]*$" },
+        "source": { "const": "bls" },
+        "field": { "enum": ["cpi", "inflation_yoy_percent", "unemployment_rate_percent"] }
+      }
+    },
+    "multiSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "rule", "parameters"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/keyedYahooSignal" },
+              { "$ref": "#/$defs/keyedBlsSignal" }
+            ]
+          }
+        },
+        "rule": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
+        }
+      }
+    },
+    "dailyMultiSignal": {
+      "$ref": "#/$defs/multiSignal"
+    },
+    "intradayMultiSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "rule", "parameters"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/keyedYahooSignal" }
+        },
+        "rule": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "number", "integer", "boolean"] }
+        }
+      }
+    },
+    "intradayExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bar_interval", "session", "entry_timing", "holding_period_bars", "allocation_percent", "ignore_overlapping_signals"],
+      "properties": {
+        "bar_interval": { "const": "1h" },
+        "session": { "const": "regular" },
+        "entry_timing": { "const": "next_trading_bar_close" },
+        "holding_period_bars": { "type": "integer", "minimum": 1, "maximum": 1764 },
+        "allocation_percent": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
+        "ignore_overlapping_signals": { "const": true }
+      }
     }
   }
 }
-

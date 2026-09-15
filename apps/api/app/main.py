@@ -113,7 +113,6 @@ def health() -> HealthResponse:
 @app.post(
     "/backtest",
     response_model=BacktestResponse,
-    response_model_exclude_none=True,
 )
 def backtest(
     request: BacktestRequest,
@@ -243,7 +242,6 @@ def deploy_strategy(
 @app.get(
     "/strategies/{strategy_id}",
     response_model=BacktestResponse,
-    response_model_exclude_none=True,
 )
 def get_strategy(
     strategy_id: str,
@@ -285,7 +283,7 @@ def _fixture_check(source: str, request: BacktestRequest) -> None:
         },
     }
     fixture_rows = [
-        {"date": item_date, "value": value}
+        _FixtureRow({"date": item_date, "value": value})
         for item_date, value in zip(dates, [4.3, 4.2, 4.1, 4.0])
     ]
     if request.strategy.version in {"1.1", "1.2"}:
@@ -297,6 +295,18 @@ def _fixture_check(source: str, request: BacktestRequest) -> None:
         data["signal"] = fixture_rows
     output = execute_strategy(source, data, timeout_seconds=1.0)
     _validate_required_data_matches(output.required_data, request)
+
+
+class _FixtureRow(dict[str, Any]):
+    def __getitem__(self, key: str) -> Any:
+        if key not in self:
+            raise KeyError(key)
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key not in self:
+            raise KeyError(key)
+        return super().get(key, default)
 
 
 def _validate_required_data_matches(

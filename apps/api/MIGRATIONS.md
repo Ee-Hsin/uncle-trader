@@ -1,4 +1,4 @@
-# Pending API Contract Migrations
+# API Contract Migrations
 
 This file records backend previews that require coordinated updates to the frozen
 contracts and frontend before they become part of the shared public API. It does
@@ -6,21 +6,21 @@ not replace `contracts/**`, which remains the source of truth.
 
 ## Confirmed strategy 1.1: multiple Yahoo and BLS signal sources
 
-Status: **implemented as a backward-compatible backend preview; contract and
-frontend adoption are pending.**
+Status: **implemented in the backend and the local integration worktree.
+Promotion to `main` is pending.**
 
 The existing version 1.0 request remains accepted without any field or behavior
 changes. Version 1.1 adds complex conditions backed by multiple Yahoo Finance
 and/or BLS series while restricting the strategy to one traded ticker.
 
-### Contract changes requiring Jordan's approval
+### Version 1.1 contract changes
 
 - Change `strategy.version` from the constant `"1.0"` to versioned alternatives
   that preserve the complete 1.0 shape and add a 1.1 shape.
 - For version 1.1, require exactly one `target_tickers` item.
 - Keep the outer `signal` field, its `rule`, and its `parameters`.
 - Replace the version 1.0 signal's single `source`, `symbol`, and `field` with a
-  version 1.1 `sources` array containing 2–10 entries.
+  version 1.1 `sources` array containing 1–10 entries.
 - Each Yahoo source has exactly `key`, `source`, `symbol`, and `field`.
 - Each BLS source has exactly `key`, `source`, and `field`; its field is `cpi`,
   `inflation_yoy_percent`, or `unemployment_rate_percent`.
@@ -96,8 +96,8 @@ emits a signal after all confirmed series decline together for the configured
 `consecutive_observations`. It cannot faithfully interpret every complex
 plain-language rule, so the existing fallback warning remains mandatory.
 
-### Compatibility warning
+### Compatibility status
 
-Until the frozen schemas and frontend types adopt version 1.1, backend 1.1
-requests intentionally exceed the published contract. Version 1.0 remains the
-only fully shared contract and continues to pass its existing regression tests.
+The local frozen schemas, frontend types, conversation output, and regression
+fixtures now support version 1.1. Version 1.0 remains unchanged. These additions
+are not on `main` until this local experiment is promoted.

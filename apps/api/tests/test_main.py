@@ -72,6 +72,31 @@ def test_backtest_and_deploy_smoke_without_openai(monkeypatch, tmp_path):
         main.app.dependency_overrides.clear()
 
 
+def test_zero_trade_backtest_keeps_null_sharpe_ratio(monkeypatch, tmp_path):
+    repository = StrategyRepository(tmp_path / "test.db")
+    main.app.dependency_overrides[main.get_repository] = lambda: repository
+    monkeypatch.delenv("API_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("API_OPENAI_MODEL", raising=False)
+    data = _normalized_data()
+    for index, row in enumerate(data["signal"]):
+        row["value"] = float(index)
+    monkeypatch.setattr(main, "_load_data", lambda request: data)
+
+    try:
+        with TestClient(main.app) as client:
+            response = client.post("/backtest", json=_request_payload())
+            body = response.json()
+            saved = client.get(f"/strategies/{body['strategy_id']}")
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert body["status"] == "complete"
+    assert body["results"][0]["metrics"]["trade_count"] == 0
+    assert "sharpe_ratio" in body["results"][0]["metrics"]
+    assert body["results"][0]["metrics"]["sharpe_ratio"] is None
+    assert saved.json() == body
+
+
 def test_data_failure_returns_contract_error(monkeypatch, tmp_path):
     repository = StrategyRepository(tmp_path / "test.db")
     main.app.dependency_overrides[main.get_repository] = lambda: repository

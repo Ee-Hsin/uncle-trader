@@ -1,0 +1,43 @@
+{
+  "strategy": {
+    "version": "1.2",
+    "name": "Hourly FICO market confirmation",
+    "thesis": "Synchronized hourly weakness can create a short-term entry.",
+    "target_tickers": ["FICO"],
+    "direction": "long",
+    "signal": {
+      "sources": [
+        {
+          "key": "market",
+          "source": "yahoo",
+          "symbol": "SPY",
+          "field": "close"
+        },
+        {
+          "key": "technology",
+          "source": "yahoo",
+          "symbol": "QQQ",
+          "field": "volume"
+        }
+      ],
+      "rule": "Enter after both hourly series decline together.",
+      "parameters": {
+        "consecutive_observations": 1,
+        "observation_frequency": "hourly"
+      }
+    },
+    "execution": {
+      "bar_interval": "1h",
+      "session": "regular",
+      "entry_timing": "next_trading_bar_close",
+      "holding_period_bars": 14,
+      "allocation_percent": 20,
+      "ignore_overlapping_signals": true
+    }
+  },
+  "backtest": {
+    "start_date": "2026-01-01",
+    "end_date": "2026-06-30",
+    "initial_capital": 10000
+  }
+}

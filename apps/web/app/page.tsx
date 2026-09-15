@@ -37,13 +37,14 @@ const NUMBER_PATHS = new Set([
   "strategy.signal.parameters.lookback_days",
   "strategy.signal.parameters.comparison_window_days",
   "strategy.execution.holding_period_days",
+  "strategy.execution.holding_period_bars",
   "strategy.execution.allocation_percent",
   "backtest.initial_capital",
 ]);
 
 const INITIAL_MESSAGE: ConversationMessage = {
   role: "assistant",
-  content: "Describe a daily stock or ETF trading idea. I will fill in reasonable assumptions for you to review.",
+  content: "Describe a stock or ETF trading idea. I will fill in reasonable assumptions for you to review.",
 };
 
 function apiErrorMessage(body: unknown, fallback: string): string {
@@ -209,9 +210,57 @@ export default function Home() {
     invalidateConfirmation();
   }
 
+  function editVersion(version: ConversationDraft["strategy"]["version"]) {
+    setDraft((current) => {
+      let next = updateDraftPath(current, "strategy.version", version);
+      const intraday = version === "1.2";
+      const multiSource = intraday || version === "1.1";
+      next = updateDraftPath(next, "strategy.signal.source", null);
+      next = updateDraftPath(next, "strategy.signal.symbol", null);
+      next = updateDraftPath(next, "strategy.signal.field", null);
+      next = updateDraftPath(next, "strategy.signal.location", null);
+      next = updateDraftPath(next, "strategy.signal.sources", multiSource ? current.strategy.signal.sources : null);
+      next = updateDraftPath(next, "strategy.signal.parameters.observation_frequency", intraday ? "hourly" : "daily");
+      next = updateDraftPath(next, "strategy.execution.entry_timing", intraday ? "next_trading_bar_close" : "next_trading_day_close");
+      next = updateDraftPath(next, "strategy.execution.holding_period_days", intraday ? null : current.strategy.execution.holding_period_days);
+      next = updateDraftPath(next, "strategy.execution.bar_interval", intraday ? "1h" : null);
+      next = updateDraftPath(next, "strategy.execution.session", intraday ? "regular" : null);
+      return updateDraftPath(next, "strategy.execution.holding_period_bars", intraday ? current.strategy.execution.holding_period_bars : null);
+    });
+    setConfirmedPaths((current) => {
+      const next = new Set(current.filter((path) =>
+        !path.startsWith("strategy.signal.") &&
+        !path.startsWith("strategy.execution.") &&
+        path !== "strategy.version"
+      ));
+      if (version) next.add("strategy.version");
+      next.add("strategy.execution.entry_timing");
+      next.add("strategy.execution.ignore_overlapping_signals");
+      next.add("strategy.signal.parameters.observation_frequency");
+      if (version === "1.2") {
+        next.add("strategy.execution.bar_interval");
+        next.add("strategy.execution.session");
+      }
+      return [...next];
+    });
+    chatAbort.current?.abort();
+    chatSequence.current += 1;
+    setChatLoading(false);
+    setChatError(null);
+    invalidateConfirmation();
+  }
+
   function editField(path: string, rawValue: string) {
+    if (path === "strategy.version") {
+      editVersion((rawValue || null) as ConversationDraft["strategy"]["version"]);
+      return;
+    }
     if (path === "strategy.signal.source") {
       editSource((rawValue || null) as SignalSource | null);
+      return;
+    }
+    if (path === "strategy.signal.sources") {
+      recordEdit(path, parseSignalSources(rawValue));
       return;
     }
     if (path === "strategy.target_tickers") {
@@ -355,6 +404,7 @@ export default function Home() {
           draft.strategy.name ||
           draft.strategy.target_tickers ||
           draft.strategy.signal.source ||
+          draft.strategy.signal.sources?.length ||
           draft.strategy.signal.rule
         )}
         pastStrategies={pastStrategies}
@@ -367,4 +417,26 @@ export default function Home() {
       />
     </main>
   );
+}
+
+function parseSignalSources(value: string): ConversationDraft["strategy"]["signal"]["sources"] {
+  const entries = value.split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
+  if (entries.length === 0) return null;
+  return entries.map((entry, index) => {
+    const separator = entry.indexOf(":");
+    const prefix = separator >= 0 ? entry.slice(0, separator) : "";
+    const rest = separator >= 0 ? entry.slice(separator + 1) : entry;
+    const parts = rest.trim().split(/\s+/);
+    const provider = parts[0] ?? "";
+    const field = parts[1] ?? "";
+    const keyBase = prefix || (provider.toLowerCase() === "bls" ? field : provider) || `signal_${index + 1}`;
+    const key = keyBase.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^[^a-z]+/, "").slice(0, 32) || `signal_${index + 1}`;
+    const isBls = provider.toLowerCase() === "bls" || ["cpi", "inflation_yoy_percent", "unemployment_rate_percent"].includes(provider);
+    return {
+      key,
+      source: isBls ? "bls" : "yahoo",
+      symbol: isBls ? null : provider.toUpperCase(),
+      field: (isBls ? (provider.toLowerCase() === "bls" ? field : provider) : field) as NonNullable<ConversationDraft["strategy"]["signal"]["sources"]>[number]["field"],
+    };
+  });
 }

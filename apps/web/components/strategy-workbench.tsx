@@ -467,7 +467,7 @@ export function StrategyChat({
             resizeComposerInput(event.currentTarget);
             onIdeaChange?.(event.target.value);
           }}
-          placeholder="Describe a daily stock or ETF strategy."
+          placeholder="Describe a stock or ETF strategy."
         />
         <div className="composerFooter">
           <div className="composerLeading">
@@ -932,9 +932,15 @@ export function formatPercent(value: number | null) {
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", value.includes("T")
+    ? { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" }
+    : { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }
+  ).format(new Date(value));
 }
 
 function formatDateShort(value: string) {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", value.includes("T")
+    ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }
+    : { month: "short", day: "numeric", timeZone: "UTC" }
+  ).format(new Date(value));
 }

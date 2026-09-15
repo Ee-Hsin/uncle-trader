@@ -1,0 +1,40 @@
+{
+  "status": "complete",
+  "strategy_id": "hourly-fico-market-confirmation",
+  "strategy_summary": "Buy FICO after SPY and QQQ decline together on hourly bars, then hold for fourteen regular-session bars.",
+  "generated_code": "class Strategy:\n    def required_data(self):\n        return [{\"key\": \"market\", \"source\": \"yahoo\", \"symbol\": \"SPY\", \"field\": \"close\"}, {\"key\": \"technology\", \"source\": \"yahoo\", \"symbol\": \"QQQ\", \"field\": \"volume\"}]\n\n    def generate_signals(self, data):\n        return []",
+  "warnings": [],
+  "results": [
+    {
+      "ticker": "FICO",
+      "metrics": {
+        "total_pnl": 125,
+        "total_return_percent": 1.25,
+        "sharpe_ratio": 0.7,
+        "average_pnl_per_trade": 125,
+        "expected_value_per_trade": 125,
+        "win_rate_percent": 100,
+        "max_drawdown_percent": -0.4,
+        "trade_count": 1,
+        "buy_and_hold_return_percent": 2.1
+      },
+      "equity_curve": [
+        { "date": "2026-06-01T14:30:00Z", "equity": 10000 },
+        { "date": "2026-06-01T15:30:00Z", "equity": 10040 },
+        { "date": "2026-06-03T14:30:00Z", "equity": 10125 }
+      ],
+      "trades": [
+        {
+          "entry_date": "2026-06-01T15:30:00Z",
+          "exit_date": "2026-06-03T14:30:00Z",
+          "direction": "long",
+          "entry_price": 1300,
+          "exit_price": 1316.25,
+          "quantity": 7.6923076923,
+          "pnl": 125,
+          "return_percent": 1.25
+        }
+      ]
+    }
+  ]
+}

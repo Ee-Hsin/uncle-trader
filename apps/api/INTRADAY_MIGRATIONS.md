@@ -1,8 +1,8 @@
-# Pending Intraday API Contract Migration
+# Intraday API Contract Migration
 
-This file records the additive backend version 1.2 preview. It does not replace
-`contracts/**`, which remains the frozen shared source of truth until Jordan
-updates the schemas, examples, frontend types, and conversation prompt.
+This file records the additive backend version 1.2 contract. The local
+integration worktree now includes the matching frozen schemas, examples,
+frontend types, and conversation prompt. Promotion to `main` is still pending.
 
 ## Why a contract change is required
 
@@ -97,8 +97,8 @@ The response object and field names stay the same. For a version 1.2 result:
 - Metrics retain their names and percentage-point units.
 - Sharpe ratio annualization uses 252 trading days times 6.5 trading hours.
 
-This is a response-contract widening and frontend date parsing must be updated
-before version 1.2 is exposed through the shared application.
+This response-contract widening is supported by timestamp-aware frontend parsing
+in the local integration worktree.
 
 ## Regular-session and holding behavior
 
@@ -133,36 +133,21 @@ introduce extended-hours, weekend, holiday, or otherwise fabricated signal bars.
 
 ## Coordinated adoption checklist
 
-- [ ] Update confirmed-strategy schema with the version 1.2 request variant.
-- [ ] Update backtest-response schema to accept timestamped v1.2 result points.
-- [ ] Add version 1.2 request and response examples.
-- [ ] Update frontend TypeScript types and timestamp rendering.
-- [ ] Update the conversation prompt with hourly/session/holding choices.
-- [ ] Preserve version 1.0 and 1.1 regression fixtures.
-- [ ] Keep `DATA_SOURCES.md`, backend prompt instructions, mocked tests, and
+- [x] Update confirmed-strategy schema with the version 1.2 request variant.
+- [x] Update backtest-response schema to accept timestamped v1.2 result points.
+- [x] Add version 1.2 request and response examples.
+- [x] Update frontend TypeScript types and timestamp rendering.
+- [x] Update the conversation prompt with hourly/session/holding choices.
+- [x] Preserve version 1.0 and 1.1 regression fixtures.
+- [x] Keep `DATA_SOURCES.md`, backend prompt instructions, mocked tests, and
       Docker image current as implementation changes.
 
-## Latest frontend-main integration findings
+## Local frontend integration status
 
-Checked against frontend main commit `f6d4f6f`:
-
-- `apps/web/lib/contracts.ts` currently defines only strategy version `1.0`,
-  validates only the daily signal and execution shapes, and requires date-only
-  equity/trade values. It must add discriminated 1.2 request types and accept UTC
-  timestamps in 1.2 results.
-- `apps/web/lib/conversation.ts` models only the daily draft fields. It needs
-  version 1.2, `signal.sources`, `bar_interval`, `session`,
-  `next_trading_bar_close`, and `holding_period_bars` draft/confirmation paths.
-- `prompts/conversation-agent.md` explicitly rejects intraday strategies. Jordan
-  must update it with the version 1.2 source, session, interval, and holding
-  constraints when the shared contract is approved.
-- `apps/web/lib/presentation.ts` and `apps/web/components/types.ts` expose only
-  `holdingPeriodDays` and a single signal. They need an hourly/multi-source view
-  and timestamp-aware labels.
-- `apps/web/app/page.tsx` confirmation paths and editing callbacks assume the
-  version 1.0 single daily signal shape.
-- The existing chart and trade components already carry result dates as strings,
-  but their rendering must be verified with multiple points and trades per day.
+The integration worktree now supports discriminated 1.0, 1.1, and 1.2 request
+types, hourly draft fields, keyed Yahoo sources, bar-based holding periods, and
+UTC timestamp display. The frozen request and response examples are covered by
+frontend runtime-validation tests and backend JSON Schema tests.
 
 The backend now supports main's `GET /strategies/{strategy_id}` flow for version
 1.2: the stored timestamped response round-trips unchanged, and simulated

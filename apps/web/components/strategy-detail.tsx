@@ -266,5 +266,8 @@ function LineChart({ points, kind }: { points: Array<{ date: string; value?: num
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", value.includes("T")
+    ? { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }
+    : { month: "short", day: "numeric", timeZone: "UTC" }
+  ).format(new Date(value));
 }

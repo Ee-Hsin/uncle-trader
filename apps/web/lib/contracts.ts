@@ -1,12 +1,14 @@
-export type StrategyVersion = "1.0";
+export type StrategyVersion = "1.0" | "1.1" | "1.2";
 export type Direction = "long" | "short";
 export type SignalSource = "yahoo" | "open_meteo";
 export type YahooSignalField = "close" | "volume";
+export type BlsSignalField = "cpi" | "inflation_yoy_percent" | "unemployment_rate_percent";
 export type WeatherSignalField =
   | "precipitation_sum"
   | "temperature_2m_max"
   | "temperature_2m_min";
 export type SignalField = YahooSignalField | WeatherSignalField;
+export type MultiSignalField = YahooSignalField | BlsSignalField;
 
 export interface StrategyLocation {
   name: string;
@@ -37,22 +39,52 @@ export interface OpenMeteoSignal {
 
 export type StrategySignal = YahooSignal | OpenMeteoSignal;
 
-export interface StrategyExecution {
+export interface KeyedYahooSignal {
+  key: string;
+  source: "yahoo";
+  symbol: string;
+  field: YahooSignalField;
+}
+
+export interface KeyedBlsSignal {
+  key: string;
+  source: "bls";
+  field: BlsSignalField;
+}
+
+export interface MultiSignal {
+  sources: Array<KeyedYahooSignal | KeyedBlsSignal>;
+  rule: string;
+  parameters: Record<string, SignalParameter>;
+}
+
+export interface DailyStrategyExecution {
   entry_timing: "next_trading_day_close";
   holding_period_days: number;
   allocation_percent: number;
   ignore_overlapping_signals: true;
 }
 
-export interface ConfirmedStrategy {
-  version: StrategyVersion;
+export interface IntradayStrategyExecution {
+  bar_interval: "1h";
+  session: "regular";
+  entry_timing: "next_trading_bar_close";
+  holding_period_bars: number;
+  allocation_percent: number;
+  ignore_overlapping_signals: true;
+}
+
+interface StrategyBase {
   name: string;
   thesis: string;
   target_tickers: string[];
   direction: Direction;
-  signal: StrategySignal;
-  execution: StrategyExecution;
 }
+
+export type ConfirmedStrategy =
+  | (StrategyBase & { version: "1.0"; signal: StrategySignal; execution: DailyStrategyExecution })
+  | (StrategyBase & { version: "1.1"; signal: MultiSignal; execution: DailyStrategyExecution })
+  | (StrategyBase & { version: "1.2"; signal: MultiSignal; execution: IntradayStrategyExecution });
 
 export interface BacktestSettings {
   start_date: string;
@@ -254,7 +286,36 @@ function isSignal(value: unknown): value is StrategySignal {
   return false;
 }
 
-function isExecution(value: unknown): value is StrategyExecution {
+function isKeyedSignal(value: unknown): value is KeyedYahooSignal | KeyedBlsSignal {
+  if (!isObject(value) || !isNonBlank(value.key) || !/^[a-z][a-z0-9_]{0,31}$/.test(value.key)) return false;
+  if (value.source === "yahoo") {
+    return hasOnlyKeys(value, ["key", "source", "symbol", "field"])
+      && isNonBlank(value.symbol)
+      && (value.field === "close" || value.field === "volume");
+  }
+  return value.source === "bls"
+    && hasOnlyKeys(value, ["key", "source", "field"])
+    && (value.field === "cpi" || value.field === "inflation_yoy_percent" || value.field === "unemployment_rate_percent");
+}
+
+function isMultiSignal(value: unknown): value is MultiSignal {
+  if (
+    !isObject(value) ||
+    !hasOnlyKeys(value, ["sources", "rule", "parameters"]) ||
+    !Array.isArray(value.sources) ||
+    value.sources.length < 1 ||
+    value.sources.length > 10 ||
+    !value.sources.every(isKeyedSignal) ||
+    !isNonBlank(value.rule) ||
+    !isParameters(value.parameters)
+  ) {
+    return false;
+  }
+  const keys = value.sources.map((source) => source.key);
+  return new Set(keys).size === keys.length;
+}
+
+function isDailyExecution(value: unknown): value is DailyStrategyExecution {
   return (
     isObject(value) &&
     hasOnlyKeys(value, [
@@ -274,6 +335,30 @@ function isExecution(value: unknown): value is StrategyExecution {
   );
 }
 
+function isIntradayExecution(value: unknown): value is IntradayStrategyExecution {
+  return (
+    isObject(value) &&
+    hasOnlyKeys(value, [
+      "bar_interval",
+      "session",
+      "entry_timing",
+      "holding_period_bars",
+      "allocation_percent",
+      "ignore_overlapping_signals",
+    ]) &&
+    value.bar_interval === "1h" &&
+    value.session === "regular" &&
+    value.entry_timing === "next_trading_bar_close" &&
+    Number.isInteger(value.holding_period_bars) &&
+    (value.holding_period_bars as number) >= 1 &&
+    (value.holding_period_bars as number) <= 1764 &&
+    isFiniteNumber(value.allocation_percent) &&
+    value.allocation_percent > 0 &&
+    value.allocation_percent <= 100 &&
+    value.ignore_overlapping_signals === true
+  );
+}
+
 export function isConfirmedStrategy(value: unknown): value is ConfirmedStrategy {
   if (
     !isObject(value) ||
@@ -282,8 +367,7 @@ export function isConfirmedStrategy(value: unknown): value is ConfirmedStrategy 
     return false;
   }
   const tickers = value.target_tickers;
-  return (
-    value.version === "1.0" &&
+  const commonValid = (
     isNonBlank(value.name) &&
     isNonBlank(value.thesis) &&
     Array.isArray(tickers) &&
@@ -291,10 +375,20 @@ export function isConfirmedStrategy(value: unknown): value is ConfirmedStrategy 
     tickers.length <= 5 &&
     tickers.every(isTicker) &&
     new Set(tickers).size === tickers.length &&
-    (value.direction === "long" || value.direction === "short") &&
-    isSignal(value.signal) &&
-    isExecution(value.execution)
+    (value.direction === "long" || value.direction === "short")
   );
+  if (!commonValid) return false;
+  if (value.version === "1.0") return isSignal(value.signal) && isDailyExecution(value.execution);
+  if (value.version === "1.1") {
+    return tickers.length === 1
+      && isMultiSignal(value.signal)
+      && isDailyExecution(value.execution);
+  }
+  return value.version === "1.2"
+    && tickers.length === 1
+    && isMultiSignal(value.signal)
+    && value.signal.sources.every((source) => source.source === "yahoo")
+    && isIntradayExecution(value.execution);
 }
 
 export function isBacktestRequest(value: unknown): value is BacktestRequest {
@@ -367,10 +461,15 @@ function isEquityPoint(value: unknown): value is EquityPoint {
   return (
     isObject(value) &&
     hasOnlyKeys(value, ["date", "equity"]) &&
-    isDate(value.date) &&
+    isPointTime(value.date) &&
     isFiniteNumber(value.equity) &&
     value.equity >= 0
   );
+}
+
+function isPointTime(value: unknown): value is string {
+  return isDate(value)
+    || (typeof value === "string" && UTC_DATE_TIME_PATTERN.test(value) && Number.isFinite(Date.parse(value)));
 }
 
 function isTrade(value: unknown): value is BacktestTrade {
@@ -386,8 +485,8 @@ function isTrade(value: unknown): value is BacktestTrade {
       "pnl",
       "return_percent",
     ]) &&
-    isDate(value.entry_date) &&
-    isDate(value.exit_date) &&
+    isPointTime(value.entry_date) &&
+    isPointTime(value.exit_date) &&
     (value.direction === "long" || value.direction === "short") &&
     isFiniteNumber(value.entry_price) &&
     value.entry_price > 0 &&

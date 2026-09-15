@@ -29,6 +29,7 @@ export type StrategyDraftView = {
   execution: {
     entryTiming: string;
     holdingPeriodDays: number | null;
+    holdingPeriodBars?: number | null;
     allocationPercent: number | null;
     ignoreOverlappingSignals: boolean;
   };

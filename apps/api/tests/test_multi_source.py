@@ -10,7 +10,11 @@ from app.data_sources import load_yahoo_signals
 from app.generator import _instructions_for_strategy
 from app.models import BacktestRequest
 from app.repository import StrategyRepository
-from app.strategy_runtime import build_fallback_source, execute_strategy
+from app.strategy_runtime import (
+    StrategyValidationError,
+    build_fallback_source,
+    execute_strategy,
+)
 
 
 def _request_payload() -> dict:
@@ -114,8 +118,24 @@ def test_generation_instructions_include_exact_data_source_catalog():
     assert "`temperature_2m_min`" in instructions
     assert "Bureau of Labor Statistics (`source`: `bls`)" in instructions
     assert "`cpi`, `inflation_yoy_percent`, and `unemployment_rate_percent`" in instructions
-    assert "Version 1.1 has 2-10 keyed Yahoo Finance and/or BLS signals" in instructions
+    assert "Version 1.1 has 1-10 keyed Yahoo Finance and/or BLS signals" in instructions
+    assert "Each normalized signal row contains exactly `date`" in instructions
+    assert "never read a provider field name or `timestamp`" in instructions
     assert "Do not request or invent FRED" in instructions
+
+
+def test_fixture_rejects_provider_specific_normalized_row_keys():
+    source = '''class Strategy:
+    def required_data(self):
+        return [{"key": "treasury_yield", "source": "yahoo", "symbol": "^TNX", "field": "close"}, {"key": "market", "source": "yahoo", "symbol": "SPY", "field": "close"}]
+
+    def generate_signals(self, data):
+        rows = data["signals"]["treasury_yield"]
+        return [] if rows[0].get("close") is None else []
+'''
+
+    with pytest.raises(StrategyValidationError):
+        main._fixture_check(source, BacktestRequest.model_validate(_request_payload()))
 
 
 def test_version_11_accepts_mixed_yahoo_and_bls_sources():
@@ -131,6 +151,18 @@ def test_version_11_accepts_mixed_yahoo_and_bls_sources():
     invalid["strategy"]["signal"]["sources"][1]["field"] = "gdp"
     with pytest.raises(ValidationError):
         BacktestRequest.model_validate(invalid)
+
+
+def test_version_11_accepts_one_bls_source():
+    payload = _mixed_request_payload()
+    payload["strategy"]["signal"]["sources"] = [
+        payload["strategy"]["signal"]["sources"][1]
+    ]
+
+    request = BacktestRequest.model_validate(payload)
+
+    assert len(request.strategy.signal.sources) == 1
+    assert request.strategy.signal.sources[0].field == "inflation_yoy_percent"
 
 
 def test_version_11_rejects_multiple_targets_or_duplicate_source_keys():

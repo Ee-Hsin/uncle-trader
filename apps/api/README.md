@@ -27,12 +27,11 @@ The web app uses these API routes:
 - `GET /strategies/{strategy_id}` loads a saved backtest for the strategy detail page.
 - `POST /strategies/{strategy_id}/deploy` marks a completed strategy active.
 
-Backend strategy versions 1.1 (multiple daily Yahoo and BLS sources) and 1.2
-(regular-session one-hour Yahoo bars) are additive previews that are not yet in
-the frozen frontend contract. See `MIGRATIONS.md`, `INTRADAY_MIGRATIONS.md`, and
-`DATA_SOURCES.md` before integrating either preview. Version 1.2 stored results
-use UTC timestamps in equity and trade date fields and round-trip through
-`GET /strategies/{strategy_id}`.
+Strategy version 1.1 supports multiple daily Yahoo and BLS sources. Version 1.2
+supports regular-session one-hour Yahoo bars. The local integration worktree
+includes both versions in the frozen frontend contract; promotion to `main` is
+pending. Version 1.2 stored results use UTC timestamps in equity and trade date
+fields and round-trip through `GET /strategies/{strategy_id}`.
 
 `API_CORS_ORIGINS` accepts a comma-separated list of permitted local web origins
 and defaults to `http://localhost:3000`. `API_DATABASE_PATH` defaults to the

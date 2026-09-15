@@ -96,15 +96,28 @@ export function mapDraftForDisplay(
   draft: ConversationDraft,
   stateForPath: (path: string) => FieldState,
 ): StrategyDraftView {
+  const isMultiSource = draft.strategy.version === "1.1" || draft.strategy.version === "1.2";
+  const isIntraday = draft.strategy.version === "1.2";
   const signalFields =
     draft.strategy.signal.source === "open_meteo"
       ? ["precipitation_sum", "temperature_2m_max", "temperature_2m_min"]
       : ["close", "volume"];
   const fields: EditableField[] = [
+    field("strategy.version", "Strategy frequency", draft.strategy.version, stateForPath, {
+      input: "select",
+      options: [
+        { label: "Daily", value: "1.0" },
+        { label: "Daily, Yahoo or BLS", value: "1.1" },
+        { label: "Hourly", value: "1.2" },
+      ],
+    }),
     field("strategy.name", "Strategy name", draft.strategy.name, stateForPath),
     field("strategy.thesis", "Thesis", draft.strategy.thesis, stateForPath),
     field("strategy.target_tickers", "Target tickers", draft.strategy.target_tickers?.join(", ") ?? null, stateForPath, {
-      helperText: "One to five US stock or ETF tickers, separated by commas.",
+      helperText:
+        draft.strategy.version === "1.0"
+          ? "One to five US stock or ETF tickers, separated by commas."
+          : "One US stock or ETF ticker.",
     }),
     field("strategy.direction", "Direction", draft.strategy.direction, stateForPath, {
       input: "select",
@@ -113,22 +126,38 @@ export function mapDraftForDisplay(
         { label: "Short", value: "short" },
       ],
     }),
-    field("strategy.signal.source", "Signal source", draft.strategy.signal.source, stateForPath, {
-      input: "select",
-      options: [
-        { label: "Yahoo Finance", value: "yahoo" },
-        { label: "Open-Meteo", value: "open_meteo" },
-      ],
-    }),
-    field("strategy.signal.field", "Signal field", draft.strategy.signal.field, stateForPath, {
-      input: "select",
-      options: signalFields.map((value) => ({ label: value, value })),
-    }),
   ];
-  if (draft.strategy.signal.source === "yahoo") {
+  if (isMultiSource) {
+    fields.push(field(
+      "strategy.signal.sources",
+      isIntraday ? "Hourly Yahoo signals" : "Signal sources",
+      formatDraftSources(draft.strategy.signal.sources),
+      stateForPath,
+      {
+        helperText: isIntraday
+          ? "Use entries such as SPY close, QQQ volume. One to ten Yahoo signals are supported."
+          : "Use entries such as SPY close, inflation inflation_yoy_percent. One to ten Yahoo or BLS signals are supported.",
+      },
+    ));
+  } else {
+    fields.push(
+      field("strategy.signal.source", "Signal source", draft.strategy.signal.source, stateForPath, {
+        input: "select",
+        options: [
+          { label: "Yahoo Finance", value: "yahoo" },
+          { label: "Open-Meteo", value: "open_meteo" },
+        ],
+      }),
+      field("strategy.signal.field", "Signal field", draft.strategy.signal.field, stateForPath, {
+        input: "select",
+        options: signalFields.map((value) => ({ label: value, value })),
+      }),
+    );
+  }
+  if (!isMultiSource && draft.strategy.signal.source === "yahoo") {
     fields.push(field("strategy.signal.symbol", "Signal symbol", draft.strategy.signal.symbol, stateForPath));
   }
-  if (draft.strategy.signal.source === "open_meteo") {
+  if (!isMultiSource && draft.strategy.signal.source === "open_meteo") {
     fields.push(
       field("strategy.signal.location.name", "Weather location", draft.strategy.signal.location?.name ?? null, stateForPath),
       field("strategy.signal.location.latitude", "Latitude", draft.strategy.signal.location?.latitude ?? null, stateForPath, { input: "number" }),
@@ -140,13 +169,21 @@ export function mapDraftForDisplay(
   }
   fields.push(
     field("strategy.signal.rule", "Entry condition", draft.strategy.signal.rule, stateForPath),
-    field(
-      "strategy.execution.holding_period_days",
-      "Holding period, trading days",
-      draft.strategy.execution.holding_period_days,
-      stateForPath,
-      { input: "number" },
-    ),
+    isIntraday
+      ? field(
+          "strategy.execution.holding_period_bars",
+          "Holding period, hourly bars",
+          draft.strategy.execution.holding_period_bars,
+          stateForPath,
+          { input: "number", helperText: "Counts regular-session hourly bars only." },
+        )
+      : field(
+          "strategy.execution.holding_period_days",
+          "Holding period, trading days",
+          draft.strategy.execution.holding_period_days,
+          stateForPath,
+          { input: "number" },
+        ),
     field(
       "strategy.execution.allocation_percent",
       "Allocation, percentage points",
@@ -183,7 +220,9 @@ export function mapDraftForDisplay(
     direction: draft.strategy.direction,
     signalSource: draft.strategy.signal.source,
     signalSymbol: draft.strategy.signal.symbol ?? undefined,
-    signalField: draft.strategy.signal.field ?? "Missing",
+    signalField: isMultiSource
+      ? draft.strategy.signal.sources?.map((source) => source.field).filter(Boolean).join(", ") || "Missing"
+      : draft.strategy.signal.field ?? "Missing",
     signalRule: draft.strategy.signal.rule ?? "Missing",
     parameters: Object.entries(draft.strategy.signal.parameters)
       .filter((entry): entry is [string, string | number | boolean] => entry[1] !== null)
@@ -191,11 +230,20 @@ export function mapDraftForDisplay(
     execution: {
       entryTiming: draft.strategy.execution.entry_timing ?? "next_trading_day_close",
       holdingPeriodDays: draft.strategy.execution.holding_period_days,
+      holdingPeriodBars: draft.strategy.execution.holding_period_bars,
       allocationPercent: draft.strategy.execution.allocation_percent,
       ignoreOverlappingSignals: draft.strategy.execution.ignore_overlapping_signals ?? true,
     },
     fields,
   };
+}
+
+function formatDraftSources(sources: ConversationDraft["strategy"]["signal"]["sources"]): string | null {
+  if (!sources?.length) return null;
+  return sources.map((source) => {
+    const provider = source.source === "bls" ? "BLS" : source.symbol;
+    return [source.key ? `${source.key}:` : null, provider, source.field].filter(Boolean).join(" ");
+  }).join(", ");
 }
 
 export function mapDeployForDisplay(response: DeployResponse | null, loading: boolean, canDeploy: boolean): DeployView {

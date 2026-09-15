@@ -9,7 +9,7 @@ import {
   draftFromBacktestRequest,
   populatedDraftPaths,
 } from "./conversation";
-import { backtestRequestFixture } from "./fixtures";
+import { backtestRequestFixture, hourlyBacktestRequestFixture } from "./fixtures";
 
 function requestBody() {
   const strategyDraft = draftFromBacktestRequest(backtestRequestFixture);
@@ -63,6 +63,42 @@ test("chat uses strict Responses API output and accepts a mocked structured turn
   const schema = (modelRequest?.text as { format: { schema: { properties: Record<string, { items: { enum: string[] } }> } } }).format.schema;
   assert.ok(schema.properties.confirmed_field_paths.items.enum.includes("backtest.start_date"));
   assert.ok(!schema.properties.confirmed_field_paths.items.enum.includes("strategy.backtest.start_date"));
+  assert.ok(schema.properties.confirmed_field_paths.items.enum.includes("strategy.execution.holding_period_bars"));
+});
+
+test("chat accepts a structured version 1.2 strategy turn", async () => {
+  const strategyDraft = draftFromBacktestRequest(hourlyBacktestRequestFixture);
+  const confirmedFieldPaths = populatedDraftPaths(strategyDraft);
+  const body = {
+    messages: [{ role: "user" as const, content: "Use hourly SPY and QQQ signals." }],
+    strategy_draft: strategyDraft,
+    confirmed_field_paths: confirmedFieldPaths,
+  };
+  const client = {
+    responses: {
+      create: async () => ({
+        status: "completed",
+        output: [],
+        output_text: JSON.stringify({
+          assistant_message: "The hourly strategy is ready to test.",
+          strategy_draft: strategyDraft,
+          missing_fields: [],
+          confirmed_field_paths: confirmedFieldPaths,
+          proposed_field_paths: [],
+          ready_for_confirmation: true,
+        }),
+      }),
+    },
+  };
+
+  const response = await createChatHandler(client, "test-model", "instructions")(
+    new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify(body) }),
+  );
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(result.strategy_draft.strategy.version, "1.2");
+  assert.equal(result.strategy_draft.strategy.execution.holding_period_bars, 14);
 });
 
 test("chat applies natural-language revisions to confirmed fields", async () => {
