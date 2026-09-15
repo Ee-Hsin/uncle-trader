@@ -117,3 +117,16 @@ export type StrategyWorkbenchProps = {
   };
   illustrative?: boolean;
 };
+
+export type StrategyRecord = {
+  id: string;
+  name: string;
+  ticker: string;
+  status: "paper" | "draft";
+  returnPercent: number;
+  pnl: number;
+  lastRun: string;
+  summary: string;
+  equityCurve: EquityPoint[];
+  pnlCurve: Array<{ date: string; value: number }>;
+};

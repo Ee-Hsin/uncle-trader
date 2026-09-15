@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
   BacktestResultsView,
   DeployView,
@@ -12,6 +13,7 @@ import type {
   StrategyWorkbenchProps,
   Trade,
 } from "./types";
+import { strategies } from "./strategy-data";
 
 const defaultDraft: StrategyDraftView = {
   name: "FICO after three falling Treasury-yield closes",
@@ -102,13 +104,28 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
           </button>
         </header>
         <section className="dashboardEmpty" aria-labelledby="empty-dashboard-title">
-          <p className="label">No strategies yet</p>
-          <h2 id="empty-dashboard-title">Start with an idea</h2>
-          <p>Describe a signal in plain language, then review the assumptions before running a historical paper backtest.</p>
-          <button type="button" className="secondaryButton" onClick={() => setComposerOpen(true)}>
-            Add your first strategy
-          </button>
+          <p className="label">Your strategies</p>
+          <h2 id="empty-dashboard-title">Build, test, repeat.</h2>
+          <p>Open a strategy to review its paper performance, or add a new idea to your workspace.</p>
         </section>
+        <div className="strategyList" aria-label="Strategies">
+          {strategies.map((strategy) => (
+            <Link className="strategyRow" href={`/strategies/${strategy.id}`} key={strategy.id}>
+              <span className="strategyRowMain">
+                <span className="strategyTicker">{strategy.ticker}</span>
+                <span>
+                  <strong>{strategy.name}</strong>
+                  <small>{strategy.summary}</small>
+                </span>
+              </span>
+              <span className="strategyRowStats">
+                <span className="positiveText">+{strategy.returnPercent.toFixed(1)}%</span>
+                <small>Paper return</small>
+              </span>
+              <span className="strategyRowArrow" aria-hidden="true">→</span>
+            </Link>
+          ))}
+        </div>
         {composerOpen ? (
           <>
             <button type="button" className="drawerBackdrop" aria-label="Close add strategy panel" onClick={() => setComposerOpen(false)} />

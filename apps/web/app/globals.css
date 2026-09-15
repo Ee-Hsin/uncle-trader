@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   background: #000;
   color: #f4f7fb;
 }
@@ -133,6 +133,269 @@ h3 {
   margin-top: 12px;
 }
 
+.strategyList {
+  display: grid;
+  gap: 1px;
+  margin-top: 28px;
+  border-top: 1px solid #252525;
+  border-bottom: 1px solid #252525;
+}
+
+.strategyRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 24px;
+  gap: 24px;
+  align-items: center;
+  padding: 20px 4px;
+  border-bottom: 1px solid #1c1c1c;
+  color: #f4f7fb;
+  text-decoration: none;
+}
+
+.strategyRow:last-child {
+  border-bottom: 0;
+}
+
+.strategyRow:hover {
+  background: #080808;
+}
+
+.strategyRowMain {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.strategyTicker {
+  color: #70e0c0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.strategyRow strong,
+.strategyRow small {
+  display: block;
+}
+
+.strategyRow strong {
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+
+.strategyRow small {
+  overflow: hidden;
+  color: #888;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategyRowStats {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.strategyRowStats > span {
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.strategyRowArrow {
+  color: #777;
+  font-size: 1.3rem;
+}
+
+.detailPage {
+  width: min(940px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0 64px;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 64px;
+  color: #a9a9a9;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: #fff;
+}
+
+.detailHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 30px;
+  align-items: flex-start;
+  padding-bottom: 36px;
+  border-bottom: 1px solid #252525;
+}
+
+.detailHeader h1 {
+  max-width: 680px;
+  margin-bottom: 18px;
+  font-size: clamp(2.2rem, 5vw, 4.5rem);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.detailSummary {
+  max-width: 620px;
+  margin-bottom: 0;
+  color: #999;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.strategyStatus {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid #285b4e;
+  border-radius: 999px;
+  color: #70e0c0;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.detailMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 28px 0 52px;
+  border-top: 1px solid #252525;
+  border-bottom: 1px solid #252525;
+}
+
+.detailMetric {
+  display: grid;
+  gap: 10px;
+  padding: 20px 4px;
+}
+
+.detailMetric span {
+  color: #888;
+  font-size: 0.82rem;
+}
+
+.detailMetric strong {
+  font-size: 1.6rem;
+  font-weight: 500;
+}
+
+.graphList {
+  display: grid;
+  gap: 12px;
+}
+
+.graphDisclosure {
+  border-top: 1px solid #252525;
+  border-bottom: 1px solid #252525;
+}
+
+.graphToggle {
+  display: flex;
+  width: 100%;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f4f7fb;
+  text-align: left;
+}
+
+.graphToggle:hover {
+  background: transparent;
+  color: #70e0c0;
+}
+
+.graphToggle strong,
+.graphToggle small {
+  display: block;
+}
+
+.graphToggle strong {
+  margin-bottom: 6px;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.graphToggle small {
+  color: #888;
+  font-size: 0.86rem;
+}
+
+.graphToggleIcon {
+  color: #70e0c0;
+  font-size: 1.5rem;
+  font-weight: 300;
+}
+
+.graphContent {
+  padding: 8px 0 24px;
+}
+
+.detailChart {
+  margin: 0;
+}
+
+.detailChart figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  color: #888;
+  font-size: 0.84rem;
+}
+
+.detailChart figcaption strong {
+  color: #70e0c0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.detailChart svg {
+  width: 100%;
+  height: 320px;
+  background: #050505;
+}
+
+.detailGridLine {
+  stroke: #202020;
+  stroke-width: 1;
+}
+
+.zeroLine {
+  stroke: #555;
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+}
+
+.pnlLine {
+  stroke: #70e0c0;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.detailChart svg text {
+  fill: #777;
+  font-size: 13px;
+}
+
+.detailDisclosure {
+  margin-top: 34px;
+  color: #666;
+  font-size: 0.84rem;
+}
+
 .drawerBackdrop {
   position: fixed;
   z-index: 10;
@@ -145,6 +408,10 @@ h3 {
   border-radius: 0;
   background: rgba(0, 0, 0, 0.72);
   cursor: default;
+}
+
+.drawerBackdrop:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.72);
 }
 
 .composerDrawer {
@@ -634,6 +901,10 @@ pre {
   .message {
     max-width: 100%;
   }
+
+  .detailHeader {
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 560px) {
@@ -650,5 +921,44 @@ pre {
   .editableField > span {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .strategyRow {
+    grid-template-columns: minmax(0, 1fr) 20px;
+    gap: 12px;
+  }
+
+  .strategyRowStats {
+    display: none;
+  }
+
+  .strategyRow small {
+    white-space: normal;
+  }
+
+  .detailPage {
+    width: min(100% - 20px, 940px);
+    padding-top: 24px;
+  }
+
+  .backLink {
+    margin-bottom: 40px;
+  }
+
+  .detailMetrics {
+    grid-template-columns: 1fr;
+    margin-bottom: 36px;
+  }
+
+  .detailMetric {
+    padding: 14px 0;
+  }
+
+  .detailChart svg {
+    height: 240px;
+  }
+
+  .composerDrawer {
+    padding: 22px 18px;
   }
 }
