@@ -7,6 +7,7 @@ from datetime import datetime, time, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -23,12 +24,15 @@ if _repository_env is not None:
 
 from app.backtest import run_independent_backtests
 from app.data_sources import (
+    _nyse_session_bounds,
     DataSourceError,
     load_bls_signals,
     load_open_meteo_signal,
     load_yahoo_prices,
     load_yahoo_signal,
     load_yahoo_signals,
+    load_yahoo_intraday_prices,
+    load_yahoo_intraday_signals,
 )
 from app.generator import GenerationError, generate_strategy
 from app.models import (
@@ -153,15 +157,23 @@ def backtest(
         data = _load_data(request)
         output = execute_strategy(generated_code, data, timeout_seconds=2.0)
         _validate_required_data_matches(output.required_data, request)
-        _validate_signals_match(output.signals, request)
+        _validate_signals_match(output.signals, request, data)
         results = run_independent_backtests(
             target_tickers=request.strategy.target_tickers,
             signals=output.signals,
             prices=data["prices"],
             initial_capital=request.backtest.initial_capital,
             allocation_percent=request.strategy.execution.allocation_percent,
-            holding_period_days=request.strategy.execution.holding_period_days,
+            holding_period_days=getattr(
+                request.strategy.execution, "holding_period_days", None
+            ),
             direction=request.strategy.direction,
+            holding_period_bars=getattr(
+                request.strategy.execution, "holding_period_bars", None
+            ),
+            periods_per_year=(
+                252.0 * 6.5 if request.strategy.version == "1.2" else 252.0
+            ),
         )
     except DataSourceError as exc:
         return _backtest_error("data_unavailable", str(exc), generated_code)
@@ -203,14 +215,22 @@ def deploy_strategy(
     repository: StrategyRepository = Depends(get_repository),
 ) -> DeploySuccessResponse | DeployErrorResponse:
     try:
-        stored = repository.activate(strategy_id, _next_daily_check())
+        saved = repository.fetch(strategy_id)
+        if saved is None:
+            raise StrategyNotFoundError("The strategy was not found.")
+        next_check = (
+            _next_intraday_check()
+            if saved.strategy.get("version") == "1.2"
+            else _next_daily_check()
+        )
+        stored = repository.activate(strategy_id, next_check)
     except StrategyNotFoundError:
         return _deploy_error("strategy_not_found", "The strategy was not found.")
     except StrategyNotDeployableError:
         return _deploy_error(
             "backtest_failed", "Only a successfully tested strategy can be activated."
         )
-    except RepositoryError:
+    except (RepositoryError, DataSourceError):
         return _deploy_error("backtest_failed", "The strategy could not be activated.")
     return DeploySuccessResponse(
         status="active",
@@ -245,7 +265,16 @@ def get_strategy(
 
 
 def _fixture_check(source: str, request: BacktestRequest) -> None:
-    dates = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    dates = (
+        [
+            "2024-01-02T19:30:00Z",
+            "2024-01-02T20:30:00Z",
+            "2024-01-03T14:30:00Z",
+            "2024-01-03T15:30:00Z",
+        ]
+        if request.strategy.version == "1.2"
+        else ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    )
     data: dict[str, Any] = {
         "prices": {
             ticker: [
@@ -259,7 +288,7 @@ def _fixture_check(source: str, request: BacktestRequest) -> None:
         {"date": item_date, "value": value}
         for item_date, value in zip(dates, [4.3, 4.2, 4.1, 4.0])
     ]
-    if request.strategy.version == "1.1":
+    if request.strategy.version in {"1.1", "1.2"}:
         data["signals"] = {
             signal_source.key: list(fixture_rows)
             for signal_source in request.strategy.signal.sources
@@ -274,7 +303,7 @@ def _validate_required_data_matches(
     required_data: list[dict[str, Any]], request: BacktestRequest
 ) -> None:
     signal = request.strategy.signal
-    if request.strategy.version == "1.1":
+    if request.strategy.version in {"1.1", "1.2"}:
         expected = {
             source.key: source.model_dump(mode="json")
             for source in signal.sources
@@ -304,20 +333,48 @@ def _validate_required_data_matches(
 
 
 def _validate_signals_match(
-    signals: list[dict[str, str]], request: BacktestRequest
+    signals: list[dict[str, str]],
+    request: BacktestRequest,
+    data: dict[str, Any] | None = None,
 ) -> None:
     requested_tickers = set(request.strategy.target_tickers)
+    confirmed_intraday_times: set[str] | None = None
+    if request.strategy.version == "1.2":
+        if data is None or not isinstance(data.get("signals"), dict):
+            raise StrategyValidationError(
+                "Trusted hourly signal data is required for intraday validation."
+            )
+        confirmed_intraday_times = {
+            row["date"]
+            for rows in data["signals"].values()
+            for row in rows
+            if isinstance(row, dict) and isinstance(row.get("date"), str)
+        }
     for signal in signals:
         if signal["ticker"] not in requested_tickers:
             raise StrategyValidationError("Strategy emitted an unconfirmed target ticker.")
         if signal["direction"] != request.strategy.direction:
             raise StrategyValidationError("Strategy emitted an unconfirmed direction.")
+        if (
+            confirmed_intraday_times is not None
+            and signal["signal_date"] not in confirmed_intraday_times
+        ):
+            raise StrategyValidationError(
+                "Strategy emitted a timestamp outside trusted regular-session bars."
+            )
 
 
 def _load_data(request: BacktestRequest) -> dict[str, Any]:
     start = request.backtest.start_date
     end = request.backtest.end_date
     signal = request.strategy.signal
+    if request.strategy.version == "1.2":
+        return {
+            "signals": load_yahoo_intraday_signals(signal.sources, start, end),
+            "prices": load_yahoo_intraday_prices(
+                request.strategy.target_tickers, start, end
+            ),
+        }
     prices = load_yahoo_prices(request.strategy.target_tickers, start, end)
     if request.strategy.version == "1.1":
         yahoo_sources = [source for source in signal.sources if source.source == "yahoo"]
@@ -360,6 +417,12 @@ def _strategy_id(name: str) -> str:
 
 def _strategy_summary(request: BacktestRequest) -> str:
     tickers = ", ".join(request.strategy.target_tickers)
+    if request.strategy.version == "1.2":
+        return (
+            f"{request.strategy.direction.title()} {tickers} at the next regular-session "
+            f"hourly bar close when {request.strategy.signal.rule.rstrip('.')}, then hold "
+            f"for {request.strategy.execution.holding_period_bars} trading bars."
+        )
     return (
         f"{request.strategy.direction.title()} {tickers} at the next trading-day close "
         f"when {request.strategy.signal.rule.rstrip('.')}, then hold for "
@@ -373,6 +436,21 @@ def _next_daily_check(now: datetime | None = None) -> datetime:
     if candidate <= current:
         candidate += timedelta(days=1)
     return candidate
+
+
+def _next_intraday_check(now: datetime | None = None) -> datetime:
+    eastern = ZoneInfo("America/New_York")
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    first_date = current.astimezone(eastern).date()
+    sessions = _nyse_session_bounds(first_date, first_date + timedelta(days=10))
+    for session_open, session_close in sessions.values():
+        bar_start = session_open
+        while bar_start < session_close:
+            candidate = min(bar_start + timedelta(hours=1), session_close)
+            if candidate > current:
+                return candidate
+            bar_start += timedelta(hours=1)
+    raise RuntimeError("Could not calculate the next regular-session hourly check.")
 
 
 def _backtest_error(

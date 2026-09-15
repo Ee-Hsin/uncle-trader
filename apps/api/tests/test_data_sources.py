@@ -400,4 +400,3 @@ def test_open_meteo_wraps_http_failure(open_meteo_payload):
 def test_adapters_reject_unsupported_fields(loader, kwargs):
     with pytest.raises(DataSourceError, match="Unsupported"):
         loader(start_date="2026-01-01", end_date="2026-01-03", **kwargs)
-    load_bls_signals,

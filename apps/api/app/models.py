@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -60,6 +60,7 @@ def _parse_utc_datetime(value: object) -> object:
 
 ContractDate = Annotated[date, BeforeValidator(_parse_contract_date)]
 UtcDateTime = Annotated[datetime, BeforeValidator(_parse_utc_datetime)]
+ContractPointTime = ContractDate | UtcDateTime
 NonBlankString = Annotated[
     StrictStr, StringConstraints(min_length=1, pattern=r"\S")
 ]
@@ -161,7 +162,7 @@ class MultiSignal(ContractModel):
     """A complex entry condition evaluated from multiple trusted series."""
 
     sources: Annotated[
-        list[YahooSignalSource | BLSSignalSource], Field(min_length=2, max_length=10)
+        list[YahooSignalSource | BLSSignalSource], Field(min_length=1, max_length=10)
     ]
     rule: NonBlankString
     parameters: dict[StrictStr, ParameterValue]
@@ -186,14 +187,27 @@ class Execution(ContractModel):
     ignore_overlapping_signals: Literal[True]
 
 
+class IntradayExecution(ContractModel):
+    """Regular-session hourly execution for the additive version 1.2 preview."""
+
+    bar_interval: Literal["1h"]
+    session: Literal["regular"]
+    entry_timing: Literal["next_trading_bar_close"]
+    holding_period_bars: Annotated[int, Field(ge=1, le=1764, strict=True)]
+    allocation_percent: Annotated[
+        float, Field(gt=0, le=100, strict=True, allow_inf_nan=False)
+    ]
+    ignore_overlapping_signals: Literal[True]
+
+
 class ConfirmedStrategy(ContractModel):
-    version: Literal["1.0", "1.1"]
+    version: Literal["1.0", "1.1", "1.2"]
     name: NonBlankString
     thesis: NonBlankString
     target_tickers: Annotated[list[Ticker], Field(min_length=1, max_length=5)]
     direction: Literal["long", "short"]
     signal: Signal | MultiSignal
-    execution: Execution
+    execution: Execution | IntradayExecution
 
     @field_validator("target_tickers")
     @classmethod
@@ -204,13 +218,32 @@ class ConfirmedStrategy(ContractModel):
 
     @model_validator(mode="after")
     def validate_version_shape(self) -> ConfirmedStrategy:
-        if self.version == "1.0" and not isinstance(self.signal, Signal):
-            raise ValueError("version 1.0 requires the legacy single signal shape")
+        if self.version == "1.0":
+            if not isinstance(self.signal, Signal) or not isinstance(
+                self.execution, Execution
+            ):
+                raise ValueError("version 1.0 requires the legacy daily shape")
         if self.version == "1.1":
-            if not isinstance(self.signal, MultiSignal):
-                raise ValueError("version 1.1 requires signal.sources")
+            if (
+                not isinstance(self.signal, MultiSignal)
+                or len(self.signal.sources) < 2
+                or not isinstance(self.execution, Execution)
+            ):
+                raise ValueError("version 1.1 requires 2-10 daily signal.sources")
             if len(self.target_tickers) != 1:
                 raise ValueError("version 1.1 requires exactly one target ticker")
+        if self.version == "1.2":
+            if not isinstance(self.signal, MultiSignal) or not isinstance(
+                self.execution, IntradayExecution
+            ):
+                raise ValueError("version 1.2 requires hourly signal.sources and execution")
+            if any(
+                not isinstance(source, YahooSignalSource)
+                for source in self.signal.sources
+            ):
+                raise ValueError("version 1.2 requires Yahoo signal sources")
+            if len(self.target_tickers) != 1:
+                raise ValueError("version 1.2 requires exactly one target ticker")
         return self
 
 
@@ -271,13 +304,13 @@ class Metrics(ContractModel):
 
 
 class EquityPoint(ContractModel):
-    date: ContractDate
+    date: ContractPointTime
     equity: Annotated[float, Field(ge=0, strict=True, allow_inf_nan=False)]
 
 
 class Trade(ContractModel):
-    entry_date: ContractDate
-    exit_date: ContractDate
+    entry_date: ContractPointTime
+    exit_date: ContractPointTime
     direction: Literal["long", "short"]
     entry_price: Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)]
     exit_price: Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)]
@@ -287,7 +320,7 @@ class Trade(ContractModel):
 
     @model_validator(mode="after")
     def validate_date_order(self) -> Trade:
-        if self.entry_date > self.exit_date:
+        if _point_time_key(self.entry_date) > _point_time_key(self.exit_date):
             raise ValueError("entry_date must not be after exit_date")
         return self
 
@@ -302,14 +335,14 @@ class TickerResult(ContractModel):
     def validate_series_order(self) -> TickerResult:
         equity_dates = [point.date for point in self.equity_curve]
         if any(
-            current >= following
+            _point_time_key(current) >= _point_time_key(following)
             for current, following in zip(equity_dates, equity_dates[1:])
         ):
             raise ValueError("equity_curve dates must be in strictly ascending order")
 
         trade_dates = [trade.entry_date for trade in self.trades]
         if any(
-            current > following
+            _point_time_key(current) > _point_time_key(following)
             for current, following in zip(trade_dates, trade_dates[1:])
         ):
             raise ValueError("trades must be ordered by entry_date")
@@ -363,3 +396,9 @@ class DeployResponse(RootModel[DeployResponseVariant]):
 
 class HealthResponse(ContractModel):
     status: Literal["ok"] = "ok"
+
+
+def _point_time_key(value: date | datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc)
+    return datetime.combine(value, time.min, tzinfo=timezone.utc)

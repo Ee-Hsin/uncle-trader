@@ -1255,7 +1255,7 @@ pre {
   transform: scale(0.96);
 }
 
-.strategyAppShell .strategySidebar {
+:is(.strategyAppShell, .savedStrategyShell) .strategySidebar {
   position: relative;
   display: flex;
   min-width: 0;
@@ -1302,7 +1302,7 @@ pre {
   user-select: none;
 }
 
-.strategyAppShell .sidebarBrand {
+:is(.strategyAppShell, .savedStrategyShell) .sidebarBrand {
   display: flex;
   min-height: 36px;
   align-items: center;
@@ -1311,13 +1311,37 @@ pre {
   padding: 0 4px 0 8px;
 }
 
-.strategyAppShell .sidebarTitle {
-  font-size: 0.92rem;
-  font-weight: 600;
+.sidebarIdentity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  overflow: hidden;
 }
 
-.strategyAppShell .newStrategyButton {
+.sidebarLogo {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+:is(.strategyAppShell, .savedStrategyShell) .sidebarTitle {
+  display: flex;
+  height: 30px;
+  overflow: hidden;
+  align-items: center;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.strategyAppShell, .savedStrategyShell) .newStrategyButton {
+  display: flex;
   min-height: 42px;
+  align-items: center;
   padding: 9px 11px;
   border: 0;
   border-radius: 9px;
@@ -1325,44 +1349,45 @@ pre {
   color: #ececec;
   font-size: 0.86rem;
   font-weight: 500;
+  text-decoration: none;
 }
 
-.strategyAppShell .newStrategyButton:hover:not(:disabled),
-.strategyAppShell .sidebarStrategy:hover {
+:is(.strategyAppShell, .savedStrategyShell) .newStrategyButton:hover:not(:disabled),
+:is(.strategyAppShell, .savedStrategyShell) .sidebarStrategy:hover {
   background: rgba(255, 255, 255, 0.07);
 }
 
-.strategyAppShell .sidebarLabel {
+:is(.strategyAppShell, .savedStrategyShell) .sidebarLabel {
   margin-top: 12px;
   color: #8d8d8d;
   font-size: 0.67rem;
   font-weight: 600;
 }
 
-.strategyAppShell .sidebarSection nav {
+:is(.strategyAppShell, .savedStrategyShell) .sidebarSection nav {
   display: block;
   overflow: visible;
 }
 
-.strategyAppShell .sidebarStrategy {
+:is(.strategyAppShell, .savedStrategyShell) .sidebarStrategy {
   padding: 9px 8px;
   border-radius: 9px;
 }
 
-.strategyAppShell .sidebarStrategyIcon {
+:is(.strategyAppShell, .savedStrategyShell) .sidebarStrategyIcon {
   border-color: var(--workspace-border);
   border-radius: 8px;
   color: #d8d8d8;
 }
 
-.strategyAppShell .sidebarStrategyCopy strong {
+:is(.strategyAppShell, .savedStrategyShell) .sidebarStrategyCopy strong {
   margin-bottom: 3px;
   font-size: 0.82rem;
   font-weight: 500;
 }
 
-.strategyAppShell .sidebarStrategyCopy small,
-.strategyAppShell .sidebarNote {
+:is(.strategyAppShell, .savedStrategyShell) .sidebarStrategyCopy small,
+:is(.strategyAppShell, .savedStrategyShell) .sidebarNote {
   color: #888;
   font-weight: 400;
 }
@@ -1607,6 +1632,11 @@ pre {
 
 .chatComposer textarea::placeholder {
   color: #929292;
+}
+
+.chatComposer.hasSuggestions textarea {
+  height: 32px;
+  min-height: 32px;
 }
 
 .composerSuggestions {
@@ -2162,9 +2192,27 @@ pre {
   font-weight: 600;
 }
 
+.savedStrategyShell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #212121;
+}
+
+.savedStrategyShell.hasLeftSidebar {
+  grid-template-columns: var(--strategy-sidebar-width, 260px) minmax(0, 1fr);
+}
+
 .savedStrategyPage {
-  min-height: 100dvh;
+  min-width: 0;
+  height: 100dvh;
+  min-height: 0;
   padding: 0 24px 64px;
+  overflow-y: auto;
   background: #212121;
   color: #ececec;
   font-family: Arial, Helvetica, sans-serif;
@@ -2181,6 +2229,13 @@ pre {
   margin: 0 auto;
   color: #8e8e8e;
   font-size: 0.78rem;
+}
+
+.savedStrategyTopbarLeading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
 }
 
 .savedStrategyBack {
@@ -2472,11 +2527,13 @@ pre {
     grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
   }
 
-  .strategyAppShell.hasLeftSidebar {
+  .strategyAppShell.hasLeftSidebar,
+  .savedStrategyShell.hasLeftSidebar {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .strategyAppShell.hasLeftSidebar .strategySidebar {
+  .strategyAppShell.hasLeftSidebar .strategySidebar,
+  .savedStrategyShell.hasLeftSidebar .strategySidebar {
     position: fixed;
     z-index: 20;
     inset: 0 auto 0 0;

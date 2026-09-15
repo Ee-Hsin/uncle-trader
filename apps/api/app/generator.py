@@ -34,7 +34,7 @@ _DATA_SOURCE_CATALOG_INSTRUCTIONS = """
 
 Available historical data sources are strictly limited to this catalog:
 - Yahoo Finance (`source`: `yahoo`) accepts any valid Yahoo Finance symbol and
-  only the normalized daily fields `close` and `volume`. Common examples include
+  only the normalized daily or hourly fields `close` and `volume`. Common examples include
   equities and ETFs such as `FICO`, `SPY`, and `QQQ`, and Yahoo indexes such as
   `^TNX` and `^VIX`; examples are not an exhaustive symbol allowlist.
 - Open-Meteo historical weather (`source`: `open_meteo`) requires a confirmed
@@ -48,8 +48,10 @@ Available historical data sources are strictly limited to this catalog:
   and field, with no symbol or location.
 Version 1.0 has exactly one signal and may use Yahoo Finance or Open-Meteo.
 Version 1.1 has 2-10 keyed Yahoo Finance and/or BLS signals and exactly one
-traded target ticker. Do not request or invent FRED, other macroeconomic series,
-fundamental, news, or any other provider or field.
+traded target ticker. Version 1.2 has 1-10 keyed Yahoo Finance
+signals using `1h` regular-session bars and exactly one traded target ticker.
+Do not request or invent FRED, other macroeconomic series, fundamental, news,
+or any other provider or field.
 The backend fetches the confirmed data; generated code must never download data.
 """
 
@@ -85,7 +87,8 @@ def _load_instructions() -> str:
 
 def _instructions_for_strategy(strategy_payload: Any) -> str:
     instructions = _load_instructions() + _DATA_SOURCE_CATALOG_INSTRUCTIONS
-    if isinstance(strategy_payload, dict) and strategy_payload.get("version") == "1.1":
+    version = strategy_payload.get("version") if isinstance(strategy_payload, dict) else None
+    if version == "1.1":
         instructions += """
 
 For a version 1.1 strategy, required_data() must return every confirmed
@@ -94,6 +97,20 @@ field for Yahoo, or exactly key, source, and field for BLS.
 generate_signals(data) must combine only the keyed normalized series in
 data["signals"][key]. Emit signals only for the single confirmed target ticker.
 Do not expect data["signal"] for version 1.1 strategies.
+"""
+    if version == "1.2":
+        instructions += """
+
+For version 1.2, required_data() must return every confirmed signal.sources
+item as a dictionary containing exactly key, source, symbol, and field.
+generate_signals(data) must combine only the keyed normalized series in
+data["signals"][key]. Emit signals only for the confirmed target ticker.
+Do not expect data["signal"]. Every row date is an ISO 8601 UTC hourly-bar
+timestamp ending in Z. Return signal_date using that exact timestamp.
+Data contains only regular US trading-session bars.
+Never synthesize pre-market, after-hours, overnight, or weekend bars.
+A position may remain open across sessions. The trusted backend
+enters at the next available bar close and exits after holding_period_bars.
 """
     return instructions
 

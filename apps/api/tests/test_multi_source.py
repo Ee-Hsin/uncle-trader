@@ -225,6 +225,34 @@ def test_multi_source_fallback_requests_and_combines_all_sources():
     main._validate_required_data_matches(list(reversed(output.required_data)), request)
 
 
+def test_multi_source_fallback_aligns_daily_and_monthly_sources():
+    request_payload = _mixed_request_payload()
+    request_payload["strategy"]["signal"]["parameters"]["consecutive_observations"] = 2
+    request = BacktestRequest.model_validate(request_payload)
+    source = build_fallback_source(request.strategy)
+    data = {
+        "signals": {
+            "treasury_yield": [
+                {"date": "2024-01-31", "value": 4.5},
+                {"date": "2024-02-01", "value": 4.4},
+                {"date": "2024-02-29", "value": 4.3},
+                {"date": "2024-03-01", "value": 4.2},
+                {"date": "2024-03-29", "value": 4.0},
+            ],
+            "inflation": [
+                {"date": "2024-02-01", "value": 3.5},
+                {"date": "2024-03-01", "value": 3.4},
+                {"date": "2024-04-01", "value": 3.3},
+            ],
+        },
+        "prices": {},
+    }
+
+    output = execute_strategy(source, data)
+
+    assert [signal["signal_date"] for signal in output.signals] == ["2024-04-01"]
+
+
 def test_main_loads_all_confirmed_yahoo_sources(monkeypatch):
     request = BacktestRequest.model_validate(_request_payload())
     seen = {}

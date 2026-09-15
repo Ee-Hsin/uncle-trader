@@ -9,7 +9,8 @@ version combination not listed here is unsupported and must not be invented.
 - Contract value: `"source": "yahoo"`
 - Client: `yfinance`
 - Authentication: none
-- Frequency: normalized daily rows
+- Frequency: normalized daily rows, plus regular-session hourly rows for the
+  version 1.2 backend preview
 - Inclusive backtest range: the backend adjusts yfinance's exclusive end date
 - Supported signal fields:
   - `close`: auto-adjusted daily closing price
@@ -80,6 +81,18 @@ The backend returns a data-unavailable error when Yahoo has no usable history.
 - Exactly one target ticker is traded.
 - Open-Meteo cannot currently be mixed into a version 1.1 strategy.
 
+### Version 1.2 backend preview
+
+- Between 1 and 10 uniquely keyed Yahoo Finance signal sources.
+- One-hour bars only.
+- Regular US trading session only; pre-market, after-hours, overnight, and
+  weekend rows are discarded. NYSE holidays and early closes are enforced using
+  the exchange calendar.
+- Exactly one target ticker is traded.
+- Holdings are measured in available market bars and may cross nights, weekends,
+  and holidays without executing outside the regular session.
+- Yahoo limits 1-hour history to a recent 730-day window.
+
 See `MIGRATIONS.md` for the pending shared-contract changes required before
 version 1.1 becomes part of the frozen frontend/backend contract.
 
@@ -91,7 +104,7 @@ The backend does not currently provide:
 - Direct GDP or interest-rate database series
 - Company fundamentals, earnings, or financial statements
 - News, sentiment, social media, or analyst data
-- Intraday or real-time streaming data
+- Real-time streaming data and intraday intervals other than one hour
 - Cryptocurrency exchange APIs
 
 Some market expectations or proxies may exist as Yahoo-traded symbols, but they

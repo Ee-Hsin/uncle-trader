@@ -78,20 +78,94 @@ const starterProps: StrategyWorkbenchProps = {
   },
 };
 
+export function useStrategySidebar(initialOpen = true) {
+  const [open, setOpen] = useState(initialOpen);
+  const [width, setWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [resizing, setResizing] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const widthValue = useRef(DEFAULT_SIDEBAR_WIDTH);
+  const resizeStart = useRef<{ pointerId: number; clientX: number; width: number } | null>(null);
+  const updateWidth = (next: number) => {
+    const constrained = Math.min(MAXIMUM_SIDEBAR_WIDTH, Math.max(MINIMUM_DRAG_WIDTH, next));
+    widthValue.current = constrained;
+    setWidth(constrained);
+  };
+  const openSidebar = () => {
+    if (widthValue.current <= SIDEBAR_CLOSE_THRESHOLD) updateWidth(DEFAULT_SIDEBAR_WIDTH);
+    setOpen(true);
+  };
+  const closeSidebar = () => {
+    setOpen(false);
+    requestAnimationFrame(() => toggleRef.current?.focus());
+  };
+  const onResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || resizeStart.current) return;
+    resizeStart.current = { pointerId: event.pointerId, clientX: event.clientX, width: widthValue.current };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setResizing(true);
+  };
+  const onResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = resizeStart.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    updateWidth(start.width + event.clientX - start.clientX);
+  };
+  const onResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = resizeStart.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    resizeStart.current = null;
+    setResizing(false);
+    if (widthValue.current <= SIDEBAR_CLOSE_THRESHOLD) {
+      updateWidth(DEFAULT_SIDEBAR_WIDTH);
+      closeSidebar();
+    }
+  };
+  const onResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Home") {
+      event.preventDefault();
+      closeSidebar();
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      updateWidth(MAXIMUM_SIDEBAR_WIDTH);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next = widthValue.current + (event.key === "ArrowLeft" ? -KEYBOARD_RESIZE_STEP : KEYBOARD_RESIZE_STEP);
+    if (next <= SIDEBAR_CLOSE_THRESHOLD) {
+      updateWidth(DEFAULT_SIDEBAR_WIDTH);
+      closeSidebar();
+      return;
+    }
+    updateWidth(next);
+  };
+
+  return {
+    open,
+    width,
+    resizing,
+    toggleRef,
+    style: { "--strategy-sidebar-width": `${width}px` } as CSSProperties,
+    openSidebar,
+    closeSidebar,
+    onResizeStart,
+    onResizeMove,
+    onResizeEnd,
+    onResizeKeyDown,
+  };
+}
+
 export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const view = { ...starterProps, ...props };
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
   const hasDraft = view.hasDraft ?? view.stage !== "empty";
-  const [sidebarOpen, setSidebarOpen] = useState(view.layout !== "workflow");
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
-  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const sidebar = useStrategySidebar(view.layout !== "workflow");
   const [inspectorOpen, setInspectorOpen] = useState(hasDraft);
   const draftHasOpened = useRef(hasDraft);
-  const sidebarToggle = useRef<HTMLButtonElement>(null);
   const inspectorToggle = useRef<HTMLButtonElement>(null);
-  const sidebarWidthValue = useRef(DEFAULT_SIDEBAR_WIDTH);
-  const resizeStart = useRef<{ pointerId: number; clientX: number; width: number } | null>(null);
 
   useEffect(() => {
     if (!hasDraft) {
@@ -116,104 +190,40 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   );
   const shellClassName = [
     "strategyAppShell",
-    sidebarOpen ? "hasLeftSidebar" : "",
+    sidebar.open ? "hasLeftSidebar" : "",
     inspectorOpen && hasDraft ? "hasInspector" : "",
-    sidebarResizing ? "isResizingSidebar" : "",
+    sidebar.resizing ? "isResizingSidebar" : "",
   ].filter(Boolean).join(" ");
-  const shellStyle = { "--strategy-sidebar-width": `${sidebarWidth}px` } as CSSProperties;
-  const updateSidebarWidth = (width: number) => {
-    const nextWidth = Math.min(MAXIMUM_SIDEBAR_WIDTH, Math.max(MINIMUM_DRAG_WIDTH, width));
-    sidebarWidthValue.current = nextWidth;
-    setSidebarWidth(nextWidth);
-  };
-  const openSidebar = () => {
-    if (sidebarWidthValue.current <= SIDEBAR_CLOSE_THRESHOLD) updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
-    setSidebarOpen(true);
-  };
-  const closeSidebar = () => {
-    setSidebarOpen(false);
-    requestAnimationFrame(() => sidebarToggle.current?.focus());
-  };
   const closeInspector = () => {
     setInspectorOpen(false);
     requestAnimationFrame(() => inspectorToggle.current?.focus());
   };
-  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || resizeStart.current) return;
-    resizeStart.current = {
-      pointerId: event.pointerId,
-      clientX: event.clientX,
-      width: sidebarWidthValue.current,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setSidebarResizing(true);
-  };
-  const moveSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = resizeStart.current;
-    if (!start || start.pointerId !== event.pointerId) return;
-    updateSidebarWidth(start.width + event.clientX - start.clientX);
-  };
-  const finishSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = resizeStart.current;
-    if (!start || start.pointerId !== event.pointerId) return;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    resizeStart.current = null;
-    setSidebarResizing(false);
-    if (sidebarWidthValue.current <= SIDEBAR_CLOSE_THRESHOLD) {
-      updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
-      closeSidebar();
-    }
-  };
-  const resizeSidebarWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Home") {
-      event.preventDefault();
-      closeSidebar();
-      return;
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      updateSidebarWidth(MAXIMUM_SIDEBAR_WIDTH);
-      return;
-    }
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const direction = event.key === "ArrowLeft" ? -1 : 1;
-    const nextWidth = sidebarWidthValue.current + direction * KEYBOARD_RESIZE_STEP;
-    if (nextWidth <= SIDEBAR_CLOSE_THRESHOLD) {
-      updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
-      closeSidebar();
-      return;
-    }
-    updateSidebarWidth(nextWidth);
-  };
 
   return (
-    <section className={shellClassName} style={shellStyle} aria-label="Uncle Trading workspace">
-      {sidebarOpen ? (
+    <section className={shellClassName} style={sidebar.style} aria-label="Uncle Trading workspace">
+      {sidebar.open ? (
         <StrategySidebar
-          width={sidebarWidth}
+          width={sidebar.width}
           strategies={view.pastStrategies ?? strategies}
           onNewStrategy={view.onNewStrategy}
-          onClose={closeSidebar}
-          onResizeStart={startSidebarResize}
-          onResizeMove={moveSidebarResize}
-          onResizeEnd={finishSidebarResize}
-          onResizeKeyDown={resizeSidebarWithKeyboard}
+          onClose={sidebar.closeSidebar}
+          onResizeStart={sidebar.onResizeStart}
+          onResizeMove={sidebar.onResizeMove}
+          onResizeEnd={sidebar.onResizeEnd}
+          onResizeKeyDown={sidebar.onResizeKeyDown}
         />
       ) : null}
       <section className="strategyMain">
         <header className="workspaceToolbar">
-          {sidebarOpen ? <span className="toolbarSpacer" aria-hidden="true" /> : (
+          {sidebar.open ? <span className="toolbarSpacer" aria-hidden="true" /> : (
             <button
               type="button"
-              ref={sidebarToggle}
+              ref={sidebar.toggleRef}
               className="toolbarButton"
               aria-label="Show strategy history"
               aria-expanded={false}
               aria-controls="strategy-history"
-              onClick={openSidebar}
+              onClick={sidebar.openSidebar}
             >
               <PanelIcon side="left" />
             </button>
@@ -289,10 +299,11 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   );
 }
 
-function StrategySidebar({
+export function StrategySidebar({
   width,
   strategies,
   onNewStrategy,
+  newStrategyHref,
   onClose,
   onResizeStart,
   onResizeMove,
@@ -302,6 +313,7 @@ function StrategySidebar({
   width: number;
   strategies: StrategyWorkbenchProps["pastStrategies"];
   onNewStrategy?: () => void;
+  newStrategyHref?: string;
   onClose: () => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onResizeMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -311,14 +323,23 @@ function StrategySidebar({
   return (
     <aside id="strategy-history" className="strategySidebar" aria-label="Past trading strategies">
       <div className="sidebarBrand">
-        <span className="sidebarTitle">Uncle Trading</span>
+        <span className="sidebarIdentity">
+          <img className="sidebarLogo" src="/uncle-trading-icon.png" alt="" width="30" height="30" />
+          <span className="sidebarTitle">Uncle Trading</span>
+        </span>
         <button type="button" className="toolbarButton" aria-label="Hide strategy history" onClick={onClose}>
           <PanelIcon side="left" />
         </button>
       </div>
-      <button type="button" className="newStrategyButton" onClick={onNewStrategy} disabled={!onNewStrategy}>
-        <span aria-hidden="true">+</span> New strategy
-      </button>
+      {onNewStrategy ? (
+        <button type="button" className="newStrategyButton" onClick={onNewStrategy}>
+          <span aria-hidden="true">+</span> New strategy
+        </button>
+      ) : (
+        <Link className="newStrategyButton" href={newStrategyHref ?? "/"}>
+          <span aria-hidden="true">+</span> New strategy
+        </Link>
+      )}
       <div className="sidebarSection">
         <p className="sidebarLabel">Past strategies</p>
         <nav aria-label="Saved trading strategies">
@@ -412,7 +433,7 @@ export function StrategyChat({
         {activity}
       </div>
       <form
-        className="chatComposer"
+        className={`chatComposer ${suggestions?.length ? "hasSuggestions" : ""}`}
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit?.();
@@ -420,6 +441,7 @@ export function StrategyChat({
       >
         <textarea
           id="idea"
+          rows={1}
           aria-label="Message Uncle Trading"
           maxLength={4_000}
           value={idea}
@@ -818,7 +840,7 @@ function FailurePanel({ title, message }: { title: string; message: string }) {
   );
 }
 
-function PanelIcon({ side }: { side: "left" | "right" }) {
+export function PanelIcon({ side }: { side: "left" | "right" }) {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20" width="20" height="20" fill="none">
       <rect x="2.5" y="3" width="15" height="14" rx="2" stroke="currentColor" strokeWidth="1.4" />

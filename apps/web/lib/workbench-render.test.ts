@@ -28,6 +28,9 @@ test("the empty state uses Sophia's new strategy workspace", () => {
   assert.match(html, /What would you like to test\?/);
   assert.match(html, /Past strategies/);
   assert.match(html, /New strategy/);
+  assert.match(html, /uncle-trading-icon\.png/);
+  assert.match(html, /chatComposer hasSuggestions/);
+  assert.match(html, /rows="1"/);
   assert.match(html, /Buy Tesla after three down days/);
   assert.match(html, /Buy ADM after heavy Iowa rain/);
   assert.doesNotMatch(html, /Illustrative preview data/);
@@ -127,6 +130,12 @@ test("saved strategies use the redesigned backtest page", () => {
   const html = renderToStaticMarkup(createElement(StrategyDetail, { strategy: strategies[0] }));
 
   assert.match(html, /Back to strategies/);
+  assert.match(html, /Past strategies/);
+  assert.match(html, /Uncle Trading/);
+  assert.match(html, /uncle-trading-icon\.png/);
+  assert.match(html, /savedStrategyShell hasLeftSidebar/);
+  assert.equal((html.match(/aria-label="Hide strategy history"/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /aria-label="Show strategy history"/);
   assert.match(html, /P&amp;L over time/);
   assert.match(html, /Account value/);
   assert.doesNotMatch(html, /Paper strategy|Preview data/);
