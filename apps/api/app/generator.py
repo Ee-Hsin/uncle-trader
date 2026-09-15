@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -26,7 +27,10 @@ _OUTPUT_SCHEMA = {
     },
 }
 
-_INSTRUCTIONS = """You generate a deliberately constrained Python trading strategy.
+_MAX_STRATEGY_INPUT_CHARS = 40_000
+_MAX_OUTPUT_TOKENS = 16_000
+
+_FALLBACK_INSTRUCTIONS = """You generate a deliberately constrained Python trading strategy.
 Return exactly the requested structured object with code and explanation.
 The code must contain exactly one top-level, import-free class named Strategy.
 Strategy must define required_data(self), returning data-request dictionaries, and
@@ -38,6 +42,21 @@ __import__, or any double-underscore name or attribute. Use only information kno
 through each signal date. The backend handles execution and backtesting."""
 
 
+def _load_instructions() -> str:
+    configured_path = os.getenv("API_STRATEGY_PROMPT_PATH")
+    candidates = [
+        Path(configured_path) if configured_path else None,
+        Path(__file__).resolve().parents[3] / "prompts" / "strategy-codegen.md",
+        Path(__file__).resolve().parents[1] / "prompts" / "strategy-codegen.md",
+    ]
+    for candidate in candidates:
+        if candidate and candidate.is_file():
+            instructions = candidate.read_text(encoding="utf-8").strip()
+            if instructions:
+                return instructions
+    return _FALLBACK_INSTRUCTIONS
+
+
 def generate_strategy(strategy: Any) -> GeneratedStrategy:
     api_key = os.getenv("API_OPENAI_API_KEY")
     model = os.getenv("API_OPENAI_MODEL")
@@ -47,18 +66,23 @@ def generate_strategy(strategy: Any) -> GeneratedStrategy:
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=api_key, timeout=30.0, max_retries=2)
         strategy_payload = (
             strategy.model_dump(mode="json")
             if hasattr(strategy, "model_dump")
             else strategy
         )
+        strategy_json = json.dumps(
+            strategy_payload, separators=(",", ":"), sort_keys=True
+        )
+        if len(strategy_json) > _MAX_STRATEGY_INPUT_CHARS:
+            raise ValueError("The confirmed strategy is too large for generation.")
         response = client.responses.create(
             model=model,
-            instructions=_INSTRUCTIONS,
+            instructions=_load_instructions(),
             input=(
                 "Generate the Strategy class for this confirmed strategy:\n"
-                + json.dumps(strategy_payload, separators=(",", ":"), sort_keys=True)
+                + strategy_json
             ),
             text={
                 "format": {
@@ -68,9 +92,18 @@ def generate_strategy(strategy: Any) -> GeneratedStrategy:
                     "schema": _OUTPUT_SCHEMA,
                 }
             },
+            max_output_tokens=_MAX_OUTPUT_TOKENS,
+            truncation="disabled",
             store=False,
         )
-        payload = json.loads(response.output_text)
+        if getattr(response, "status", None) != "completed":
+            raise ValueError("OpenAI returned an incomplete strategy response.")
+        output_text = getattr(response, "output_text", "")
+        if not isinstance(output_text, str) or not output_text.strip():
+            raise ValueError("OpenAI returned no strategy output.")
+        payload = json.loads(output_text)
+        if not isinstance(payload, dict) or set(payload) != {"code", "explanation"}:
+            raise ValueError("OpenAI returned an invalid strategy object.")
         code = payload["code"]
         explanation = payload["explanation"]
         if not isinstance(code, str) or not code.strip():

@@ -7,10 +7,10 @@ local installation. Docker Compose runs the FastAPI service and stores its futur
 SQLite database in the persistent `api-data` volume at
 `/data/uncle_trading.db`.
 
-From this directory, start the API with:
+From this directory, start the API with the shared root environment file:
 
 ```sh
-docker compose up --build
+docker compose --env-file ../../.env up --build
 ```
 
 The API is available at `http://localhost:8000`; its health endpoint is
@@ -25,7 +25,7 @@ API_OPENAI_API_KEY=... API_OPENAI_MODEL=... docker compose up --build
 and defaults to `http://localhost:3000`. `API_DATABASE_PATH` defaults to the
 container's persistent `/data/uncle_trading.db` path in Compose.
 
-Stop the service with `docker compose down`. The named volume is retained so
+Stop the service with `docker compose --env-file ../../.env down`. The named volume is retained so
 SQLite data survives container replacement. Running `docker compose down -v`
 also deletes that local development data.
 
@@ -33,6 +33,6 @@ also deletes that local development data.
 
 The Docker setup is part of the backend implementation and **must be updated as
 development progresses**. Keep `Dockerfile`, `docker-compose.yml`,
-`requirements.txt`, `.env.example`, exposed ports, health checks, environment
+`requirements.txt`, the root `.env.example`, exposed ports, health checks, environment
 variables, mounted paths, and the startup command synchronized whenever the API
 runtime changes.

@@ -5,12 +5,16 @@ import re
 import uuid
 from datetime import datetime, time, timedelta, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=False)
 
 from app.backtest import run_independent_backtests
 from app.data_sources import (
