@@ -138,18 +138,59 @@ h3 {
 
 .chatHome {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
   min-height: calc(100vh - 96px);
   margin: -32px 0 -64px;
 }
 
+.chatHome.sidebarCollapsed {
+  grid-template-columns: 68px minmax(0, 1fr);
+}
+
 .strategySidebar {
   display: flex;
+  position: relative;
   min-height: calc(100vh - 96px);
   flex-direction: column;
   gap: 18px;
   padding: 30px 18px 24px 0;
   border-right: 1px solid #202020;
+}
+
+.sidebarResizeHandle {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -7px;
+  width: 14px;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebarResizeHandle span {
+  display: block;
+  width: 2px;
+  height: 100%;
+  margin: 0 auto;
+  background: transparent;
+}
+
+.sidebarResizeHandle:hover span,
+.sidebarResizeHandle:focus-visible span,
+.sidebarResizing .sidebarResizeHandle span {
+  background: #fff;
+}
+
+.sidebarResizing,
+.sidebarResizing * {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .sidebarBrand {
@@ -164,6 +205,50 @@ h3 {
   color: #fff;
   font-size: 1.05rem;
   font-weight: 600;
+}
+
+.sidebarToggle {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid #292929;
+  background: transparent;
+  color: #fff;
+  font-size: 0.78rem;
+}
+
+.sidebarToggle:hover:not(:disabled) {
+  background: #101010;
+}
+
+.sidebarToggle > span:first-child {
+  font-size: 1.4rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.sidebarCollapsed .strategySidebar {
+  align-items: center;
+  padding-right: 10px;
+}
+
+.sidebarCollapsed .sidebarBrand,
+.sidebarCollapsed .sidebarToggle {
+  width: 42px;
+}
+
+.sidebarCollapsed .sidebarBrand .eyebrow,
+.sidebarCollapsed .sidebarTitle,
+.sidebarCollapsed .sidebarToggleLabel {
+  display: none;
+}
+
+.sidebarCollapsed .sidebarBrand {
+  padding: 0;
 }
 
 .newStrategyButton {
@@ -294,6 +379,16 @@ h3 {
   max-height: 250px;
   overflow-y: auto;
   margin-top: 0;
+}
+
+.chatReview {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.chatReview .surface {
+  box-shadow: none;
 }
 
 .chatSuggestions {
@@ -1095,6 +1190,10 @@ pre {
     padding: 22px 0 18px;
     border-right: 0;
     border-bottom: 1px solid #202020;
+  }
+
+  .sidebarResizeHandle {
+    display: none;
   }
 
   .sidebarNote {

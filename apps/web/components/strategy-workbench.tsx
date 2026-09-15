@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import type {
   BacktestResultsView,
   DeployView,
@@ -64,33 +65,79 @@ const starterProps: StrategyWorkbenchProps = {
 
 export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
   const view = { ...starterProps, ...props };
+  const [sidebarWidth, setSidebarWidth] = useState(248);
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const resizeStart = useRef({ pointerX: 0, width: 248 });
   const isLoading = view.stage === "loading";
   const isFailure = view.stage === "failure";
   const ready = view.stage === "ready";
 
+  useEffect(() => {
+    if (!isResizingSidebar) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextWidth = resizeStart.current.width + event.clientX - resizeStart.current.pointerX;
+      setSidebarWidth(Math.min(420, Math.max(220, nextWidth)));
+    };
+    const stopResizing = () => setIsResizingSidebar(false);
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResizing);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResizing);
+    };
+  }, [isResizingSidebar]);
+
   if (view.layout !== "workflow") {
     return (
-      <section className="chatHome" aria-label="Uncle Trading workspace">
+      <section
+        className={`chatHome ${isResizingSidebar ? "sidebarResizing" : ""}`}
+        style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        aria-label="Uncle Trading workspace"
+      >
         <aside className="strategySidebar" aria-label="Past trading strategies">
           <div className="sidebarBrand">
             <p className="eyebrow">Uncle Trading</p>
             <span className="sidebarTitle">Workspace</span>
           </div>
+          <button
+            type="button"
+            className="sidebarResizeHandle"
+            aria-label="Resize strategy sidebar"
+            aria-orientation="vertical"
+            role="separator"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              resizeStart.current = { pointerX: event.clientX, width: sidebarWidth };
+              setIsResizingSidebar(true);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                event.preventDefault();
+                setSidebarWidth((width) => Math.min(420, Math.max(220, width + (event.key === "ArrowRight" ? 16 : -16))));
+              }
+            }}
+          >
+            <span aria-hidden="true" />
+          </button>
           <button type="button" className="newStrategyButton" onClick={() => view.onIdeaChange?.("")}>
             <span aria-hidden="true">+</span> New strategy
           </button>
           <div className="sidebarSection">
             <p className="sidebarLabel">Past strategies</p>
             <nav aria-label="Saved trading strategies">
-          {strategies.map((strategy) => (
-            <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
-              <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
-              <span className="sidebarStrategyCopy">
-                <strong>{strategy.name}</strong>
-                <small>{strategy.ticker} · {strategy.lastRun}</small>
-              </span>
-            </Link>
-          ))}
+              {strategies.map((strategy) => (
+                <Link className="sidebarStrategy" href={`/strategies/${strategy.id}`} key={strategy.id}>
+                  <span className="sidebarStrategyIcon" aria-hidden="true">{strategy.ticker.slice(0, 1)}</span>
+                  <span className="sidebarStrategyCopy">
+                    <strong>{strategy.name}</strong>
+                    <small>{strategy.ticker} · {strategy.lastRun}</small>
+                  </span>
+                </Link>
+              ))}
             </nav>
           </div>
           <p className="sidebarNote">Historical results are paper-money simulations.</p>
@@ -111,6 +158,24 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
             onIdeaChange={view.onIdeaChange}
             onSubmit={view.onSubmitIdea}
           />
+          {view.draft ? (
+            <div className="chatReview">
+              <StrategyDraftPanel
+                draft={view.draft}
+                missingFields={view.missingFields ?? []}
+                onFieldChange={view.onFieldChange}
+              />
+              <ConfirmationPanel
+                ready={ready}
+                loading={isLoading}
+                finalConfirmed={view.finalConfirmed ?? false}
+                hasProposals={view.hasProposals ?? false}
+                onAcceptProposals={view.onAcceptProposals}
+                onConfirm={view.onConfirm}
+                onRunBacktest={view.onRunBacktest}
+              />
+            </div>
+          ) : null}
           <div className="chatSuggestions" aria-label="Example strategy ideas">
             <button type="button" onClick={() => view.onIdeaChange?.("Buy an ETF when its 20-day moving average crosses above its 50-day moving average.")}>Moving average crossover</button>
             <button type="button" onClick={() => view.onIdeaChange?.("Buy a stock after three consecutive down days and hold it for five trading days.")}>Three-day pullback</button>
