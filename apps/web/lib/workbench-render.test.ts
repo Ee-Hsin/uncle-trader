@@ -171,7 +171,30 @@ test("completed backtests render a compact result with modal details", () => {
   assert.match(html, /Backtest result/);
   assert.match(html, /Total P&amp;L/);
   assert.match(html, /More details/);
+  assert.doesNotMatch(html, /Show generated code|Hide generated code/);
   assert.doesNotMatch(html, /Complete trade list/);
+});
+
+test("completed backtests remain in the conversation after later runs", () => {
+  const results = mapBacktestForDisplay(backtestResponseFixture);
+  assert.ok(results);
+  const html = renderToStaticMarkup(
+    createElement(StrategyWorkbench, {
+      stage: "complete",
+      idea: "",
+      messages,
+      results,
+      backtestHistory: [
+        { id: "backtest-1", afterMessageCount: messages.length, results },
+        { id: "backtest-2", afterMessageCount: messages.length, results },
+      ],
+      hasDraft: true,
+      onIdeaChange: () => undefined,
+      onSubmitIdea: () => undefined,
+    }),
+  );
+
+  assert.equal((html.match(/>Backtest result</g) ?? []).length, 2);
 });
 
 test("saved strategies use the redesigned backtest page", () => {

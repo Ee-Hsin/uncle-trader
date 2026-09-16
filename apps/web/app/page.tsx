@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StrategyWorkbench } from "@/components/strategy-workbench";
 import { strategies } from "@/components/strategy-data";
-import type { FieldState, WorkbenchStage } from "@/components/types";
+import type { BacktestRunView, FieldState, WorkbenchStage } from "@/components/types";
 import { deployStrategy, runBacktest } from "@/lib/api-client";
 import type { BacktestRequest, BacktestResponse, DeployResponse, SignalSource } from "@/lib/contracts";
 import {
@@ -71,6 +71,7 @@ export default function Home() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [confirmedRequest, setConfirmedRequest] = useState<BacktestRequest | null>(null);
   const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
+  const [backtestHistory, setBacktestHistory] = useState<BacktestRunView[]>([]);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [deploy, setDeploy] = useState<DeployResponse | null>(null);
@@ -80,6 +81,7 @@ export default function Home() {
   const chatAbort = useRef<AbortController | null>(null);
   const backtestAbort = useRef<AbortController | null>(null);
   const deployAbort = useRef<AbortController | null>(null);
+  const backtestRunSequence = useRef(0);
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
   useEffect(() => {
@@ -150,6 +152,8 @@ export default function Home() {
     setChatError(null);
     setConfirmedRequest(null);
     setBacktest(null);
+    setBacktestHistory([]);
+    backtestRunSequence.current = 0;
     setBacktestError(null);
     setDeploy(null);
   }
@@ -341,7 +345,18 @@ export default function Home() {
     try {
       const response = await runBacktest(apiBaseUrl, request, controller.signal);
       setBacktest(response);
-      if (response.status === "error") setBacktestError(response.error.message);
+      if (response.status === "error") {
+        setBacktestError(response.error.message);
+      } else {
+        const resultView = mapBacktestForDisplay(response);
+        if (resultView) {
+          const id = `backtest-${++backtestRunSequence.current}`;
+          setBacktestHistory((current) => [
+            ...current,
+            { id, afterMessageCount: messages.length, results: resultView },
+          ]);
+        }
+      }
     } catch (error) {
       if (!controller.signal.aborted) setBacktestError(error instanceof Error ? error.message : "The backtest failed.");
     } finally {
@@ -396,6 +411,7 @@ export default function Home() {
           ...(issues.contractError ? [issues.contractError] : []),
         ]}
         results={backtestView ?? undefined}
+        backtestHistory={backtestHistory}
         deploy={mapDeployForDisplay(deploy, deployLoading, Boolean(backtestView))}
         error={backtestError ? { title: "Backtest could not run", message: backtestError } : undefined}
         chatLoading={chatLoading}

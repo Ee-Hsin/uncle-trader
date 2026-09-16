@@ -74,6 +74,12 @@ export type BacktestResultsView = {
   results: TickerBacktestResult[];
 };
 
+export type BacktestRunView = {
+  id: string;
+  afterMessageCount: number;
+  results: BacktestResultsView;
+};
+
 export type DeployView =
   | {
       state: "idle";
@@ -113,6 +119,7 @@ export type StrategyWorkbenchProps = {
   draft?: StrategyDraftView;
   missingFields?: string[];
   results?: BacktestResultsView;
+  backtestHistory?: BacktestRunView[];
   deploy?: DeployView;
   error?: {
     title: string;

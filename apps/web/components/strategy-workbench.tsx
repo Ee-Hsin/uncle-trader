@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -183,11 +184,15 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
 
   const canRunBacktest = ["ready", "complete", "failure", "active"].includes(view.stage);
   const deployView = view.deploy ?? starterProps.deploy!;
+  const visibleBacktests = view.backtestHistory?.length
+    ? view.backtestHistory
+    : view.results
+      ? [{ id: "current-backtest", afterMessageCount: view.messages.length, results: view.results }]
+      : [];
   const activity = (
     <>
       {isLoading ? <BacktestProgress /> : null}
       {isFailure && view.error ? <FailurePanel title={view.error.title} message={view.error.message} /> : null}
-      {view.results ? <BacktestResults results={view.results} /> : null}
     </>
   );
   const shellClassName = [
@@ -258,6 +263,8 @@ export function StrategyWorkbench(props: Partial<StrategyWorkbenchProps>) {
             loading={view.chatLoading}
             error={view.chatError}
             activity={activity}
+            backtestHistory={visibleBacktests}
+            activityKey={`${visibleBacktests.length}:${isLoading}:${isFailure ? view.error?.message ?? "failure" : ""}`}
             showStrategyActions={hasDraft}
             canRunBacktest={canRunBacktest}
             backtestLoading={isLoading}
@@ -393,6 +400,8 @@ export function StrategyChat({
   loading = false,
   error,
   activity,
+  backtestHistory = [],
+  activityKey,
   showStrategyActions = false,
   canRunBacktest = false,
   backtestLoading = false,
@@ -408,6 +417,8 @@ export function StrategyChat({
   loading?: boolean;
   error?: string;
   activity?: ReactNode;
+  backtestHistory?: NonNullable<StrategyWorkbenchProps["backtestHistory"]>;
+  activityKey?: string;
   showStrategyActions?: boolean;
   canRunBacktest?: boolean;
   backtestLoading?: boolean;
@@ -419,6 +430,8 @@ export function StrategyChat({
   onDeploy?: () => void;
 }) {
   const composerInput = useRef<HTMLTextAreaElement>(null);
+  const messageList = useRef<HTMLDivElement>(null);
+  const latestMessageId = messages[messages.length - 1]?.id;
   const chatClassName = [
     compact ? "chatPanel drawerChat" : "chatPanel strategyChat",
     loading ? "isChatLoading" : "",
@@ -428,18 +441,30 @@ export function StrategyChat({
     resizeComposerInput(composerInput.current);
   }, [idea]);
 
+  useEffect(() => {
+    const list = messageList.current;
+    if (!list) return;
+    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+  }, [latestMessageId, loading, activityKey]);
+
   return (
     <section className={chatClassName} aria-label="Strategy conversation">
       {error ? <p className="errorText" role="alert">{error}</p> : null}
-      <div className="messageList" aria-label="Conversation messages">
-        {messages.map((message) => (
-          <article
-            className={`message ${message.role}`}
-            aria-label={message.role === "assistant" ? "Uncle Trading" : "You"}
-            key={message.id}
-          >
-            <p>{message.text}</p>
-          </article>
+      <div ref={messageList} className="messageList" aria-label="Conversation messages">
+        {messages.map((message, index) => (
+          <Fragment key={message.id}>
+            <article
+              className={`message ${message.role}`}
+              aria-label={message.role === "assistant" ? "Uncle Trading" : "You"}
+            >
+              <p>{message.text}</p>
+            </article>
+            {backtestHistory
+              .filter((run) => run.afterMessageCount === index + 1)
+              .map((run) => (
+                <BacktestResults key={run.id} idPrefix={run.id} results={run.results} />
+              ))}
+          </Fragment>
         ))}
         {loading ? (
           <article className="message assistant typingMessage" aria-label="Uncle Trading is responding" aria-live="polite">
@@ -466,6 +491,13 @@ export function StrategyChat({
           onChange={(event) => {
             resizeComposerInput(event.currentTarget);
             onIdeaChange?.(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            if (onSubmit && idea.trim().length > 0 && !loading) {
+              event.currentTarget.form?.requestSubmit();
+            }
           }}
           placeholder="Describe a stock or ETF strategy."
         />
@@ -616,15 +648,15 @@ export function BacktestProgress() {
   );
 }
 
-export function BacktestResults({ results }: { results: BacktestResultsView }) {
+export function BacktestResults({ results, idPrefix = "backtest" }: { results: BacktestResultsView; idPrefix?: string }) {
   return (
     <section className="backtestSummaries" aria-label="Backtest results">
       {results.results.map((result) => (
         <BacktestResultSummary
           result={result}
           strategySummary={results.strategySummary}
-          generatedCode={results.generatedCode}
           warnings={results.warnings}
+          idPrefix={idPrefix}
           key={result.ticker}
         />
       ))}
@@ -635,17 +667,17 @@ export function BacktestResults({ results }: { results: BacktestResultsView }) {
 function BacktestResultSummary({
   result,
   strategySummary,
-  generatedCode,
   warnings,
+  idPrefix,
 }: {
   result: TickerBacktestResult;
   strategySummary: string;
-  generatedCode: string;
   warnings: string[];
+  idPrefix: string;
 }) {
   const totalReturn = result.headlineMetrics.find((metric) => metric.label === "Total return");
   const totalPnl = result.headlineMetrics.find((metric) => metric.label === "Total P&L");
-  const tradesId = `backtest-trades-${result.ticker.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`;
+  const tradesId = `${idPrefix}-trades-${result.ticker.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`;
 
   return (
     <article className="backtestSummaryCard">
@@ -697,7 +729,6 @@ function BacktestResultSummary({
                     </ul>
                   </div>
                 ) : null}
-                <GeneratedCodeDrawer code={generatedCode} />
                 <section id={tradesId} className="resultsModalTrades" aria-label={`All ${result.trades.length} ${result.ticker} trades`}>
                   <TradeTable trades={result.trades} />
                 </section>
